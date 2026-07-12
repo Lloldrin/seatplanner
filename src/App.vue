@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { usePlannerStore } from './stores/planner'
 
 const store = usePlannerStore()
@@ -8,6 +9,33 @@ const tabs = [
   { to: '/circle', label: 'Circle' },
   { to: '/tables', label: 'Tables' },
 ]
+
+const importInput = ref<HTMLInputElement | null>(null)
+
+function exportPlan() {
+  const blob = new Blob([store.exportState()], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `seatplanner-${new Date().toISOString().slice(0, 10)}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function importPlan(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const text = await file.text()
+  const accepted = confirm(
+    `Replace the current plan (${store.guests.length} guests, ${store.tables.length} tables) with the contents of “${file.name}”?`,
+  )
+  if (!accepted) return
+  if (!store.importState(text)) {
+    alert(`Could not import “${file.name}” — it doesn't look like a Seat Planner export.`)
+  }
+}
 </script>
 
 <template>
@@ -30,6 +58,29 @@ const tabs = [
         {{ store.guests.length - store.unassignedGuests.length }} seated ·
         {{ store.totalSeats }} seats
       </p>
+      <div class="flex gap-1" :class="{ 'ml-auto': !store.guests.length }">
+        <button
+          class="rounded-lg border border-stone-300 px-3 py-1.5 text-xs text-stone-600 transition hover:bg-stone-100"
+          title="Download the plan as a JSON file"
+          @click="exportPlan"
+        >
+          Export
+        </button>
+        <button
+          class="rounded-lg border border-stone-300 px-3 py-1.5 text-xs text-stone-600 transition hover:bg-stone-100"
+          title="Load a previously exported plan"
+          @click="importInput?.click()"
+        >
+          Import
+        </button>
+        <input
+          ref="importInput"
+          type="file"
+          accept=".json,application/json"
+          class="hidden"
+          @change="importPlan"
+        />
+      </div>
     </header>
     <main class="flex-1 py-6">
       <RouterView />

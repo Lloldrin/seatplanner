@@ -47,10 +47,10 @@ export const GROUP_COLORS = [
   '#0284c7', // sky
 ]
 
-function loadState(): { guests: Guest[]; tables: Table[] } {
+/** Parse and sanitize persisted/imported JSON; handles legacy shapes. Null if invalid. */
+function parseState(raw: string | null): { guests: Guest[]; tables: Table[] } | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { guests: [], tables: [] }
+    if (!raw) return null
     const parsed: unknown = JSON.parse(raw)
     if (
       typeof parsed === 'object' &&
@@ -87,9 +87,14 @@ function loadState(): { guests: Guest[]; tables: Table[] } {
       return { guests: state.guests, tables }
     }
   } catch {
-    // Corrupt data: start fresh rather than crash.
+    // Fall through: invalid JSON or wrong shape.
   }
-  return { guests: [], tables: [] }
+  return null
+}
+
+function loadState(): { guests: Guest[]; tables: Table[] } {
+  // Corrupt/missing data: start fresh rather than crash.
+  return parseState(localStorage.getItem(STORAGE_KEY)) ?? { guests: [], tables: [] }
 }
 
 /**
@@ -272,6 +277,25 @@ export const usePlannerStore = defineStore('planner', () => {
     guests.value.splice(to === -1 ? guests.value.length : to, 0, guest)
   }
 
+  /** Serialize the current plan for download. */
+  function exportState(): string {
+    const state: PersistedState = {
+      version: 1,
+      guests: guests.value,
+      tables: tables.value,
+    }
+    return JSON.stringify(state, null, 2)
+  }
+
+  /** Replace the whole plan from an exported file. Returns false if invalid. */
+  function importState(json: string): boolean {
+    const state = parseState(json)
+    if (!state) return false
+    guests.value = state.guests
+    tables.value = state.tables
+    return true
+  }
+
   /** Replace a table's guest list wholesale (drag & drop sync between cards). */
   function setTableGuests(tableId: string, ids: string[]): void {
     const table = tables.value.find((t) => t.id === tableId)
@@ -309,5 +333,7 @@ export const usePlannerStore = defineStore('planner', () => {
     unseatGuest,
     unseatToPosition,
     setTableGuests,
+    exportState,
+    importState,
   }
 })
