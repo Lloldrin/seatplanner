@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 export interface Guest {
   id: string
@@ -14,6 +14,22 @@ export interface Table {
   capacity: number
   /** One entry per seat: a guest id or null (empty). Length === capacity. */
   seats: (string | null)[]
+}
+
+export type RuleKind = 'couple' | 'together' | 'apart'
+
+export interface Rule {
+  id: string
+  a: string
+  b: string
+  kind: RuleKind
+}
+
+export interface Violation {
+  rule: Rule
+  a: Guest
+  b: Guest
+  message: string
 }
 
 /** The fixed block of circle slots this table owns: slots [start, end). */
@@ -36,11 +52,16 @@ interface PersistedState {
   version: 1
   guests: Guest[]
   tables: PersistedTable[]
+  rules?: Rule[]
   /** Legacy (range-based model): explicit unseated tail length. */
   unseated?: number
 }
 
 const STORAGE_KEY = 'seatplanner:v1'
+const SNAPSHOT_PREFIX = 'seatplanner:snap:'
+const SNAPSHOT_KEEP = 10
+const SNAPSHOT_MIN_INTERVAL_MS = 5 * 60_000
+const UNDO_DEPTH = 50
 
 // Order matters: groups get colors by first appearance, so the palette must be stable.
 export const GROUP_COLORS = [
@@ -56,8 +77,14 @@ export const GROUP_COLORS = [
   '#0284c7', // sky
 ]
 
+interface PlanState {
+  guests: Guest[]
+  tables: Table[]
+  rules: Rule[]
+}
+
 /** Parse and sanitize persisted/imported JSON; handles legacy shapes. Null if invalid. */
-function parseState(raw: string | null): { guests: Guest[]; tables: Table[] } | null {
+function parseState(raw: string | null): PlanState | null {
   try {
     if (!raw) return null
     const parsed: unknown = JSON.parse(raw)
@@ -98,7 +125,18 @@ function parseState(raw: string | null): { guests: Guest[]; tables: Table[] } | 
         while (seats.length < t.capacity) seats.push(null)
         return { id: t.id, name: t.name, capacity: t.capacity, seats }
       })
-      return { guests: state.guests, tables }
+
+      const kinds: RuleKind[] = ['couple', 'together', 'apart']
+      const rules = (Array.isArray(state.rules) ? state.rules : []).filter(
+        (r): r is Rule =>
+          typeof r === 'object' &&
+          r !== null &&
+          known.has(r.a) &&
+          known.has(r.b) &&
+          r.a !== r.b &&
+          kinds.includes(r.kind),
+      )
+      return { guests: state.guests, tables, rules }
     }
   } catch {
     // Fall through: invalid JSON or wrong shape.
@@ -106,9 +144,11 @@ function parseState(raw: string | null): { guests: Guest[]; tables: Table[] } | 
   return null
 }
 
-function loadState(): { guests: Guest[]; tables: Table[] } {
+function loadState(): PlanState {
   // Corrupt/missing data: start fresh rather than crash.
-  return parseState(localStorage.getItem(STORAGE_KEY)) ?? { guests: [], tables: [] }
+  return (
+    parseState(localStorage.getItem(STORAGE_KEY)) ?? { guests: [], tables: [], rules: [] }
+  )
 }
 
 /**
@@ -120,19 +160,113 @@ export const usePlannerStore = defineStore('planner', () => {
   const initial = loadState()
   const guests = ref<Guest[]>(initial.guests)
   const tables = ref<Table[]>(initial.tables)
+  const rules = ref<Rule[]>(initial.rules)
+
+  // --- Persistence, undo history, snapshots, cross-tab sync ---
+
+  const serialize = (): string =>
+    JSON.stringify({ version: 1, guests: guests.value, tables: tables.value, rules: rules.value })
+
+  const undoStack = ref<string[]>([])
+  const redoStack = ref<string[]>([])
+  const canUndo = computed(() => undoStack.value.length > 0)
+  const canRedo = computed(() => redoStack.value.length > 0)
+  let lastSerialized = serialize()
+  let applying = false
+  let lastSnapshotAt = 0
+  const snapshotsVersion = ref(0)
 
   watch(
-    [guests, tables],
+    [guests, tables, rules],
     () => {
-      const state: PersistedState = {
-        version: 1,
-        guests: guests.value,
-        tables: tables.value,
+      const current = serialize()
+      if (current === lastSerialized) return
+      if (!applying) {
+        undoStack.value.push(lastSerialized)
+        if (undoStack.value.length > UNDO_DEPTH) undoStack.value.shift()
+        redoStack.value = []
+        if (Date.now() - lastSnapshotAt > SNAPSHOT_MIN_INTERVAL_MS) saveSnapshot()
       }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      lastSerialized = current
+      localStorage.setItem(STORAGE_KEY, current)
     },
     { deep: true },
   )
+
+  async function applyState(state: PlanState): Promise<void> {
+    applying = true
+    guests.value = state.guests
+    tables.value = state.tables
+    rules.value = state.rules
+    await nextTick()
+    applying = false
+  }
+
+  async function undo(): Promise<void> {
+    const previous = undoStack.value.pop()
+    if (previous === undefined) return
+    redoStack.value.push(lastSerialized)
+    await applyState(parseState(previous) ?? { guests: [], tables: [], rules: [] })
+  }
+
+  async function redo(): Promise<void> {
+    const next = redoStack.value.pop()
+    if (next === undefined) return
+    undoStack.value.push(lastSerialized)
+    await applyState(parseState(next) ?? { guests: [], tables: [], rules: [] })
+  }
+
+  /** Other tabs write the same key; mirror their changes without recording history. */
+  window.addEventListener('storage', (event) => {
+    if (event.key !== STORAGE_KEY || event.newValue === null) return
+    if (event.newValue === lastSerialized) return
+    const state = parseState(event.newValue)
+    if (state) {
+      lastSerialized = event.newValue
+      void applyState(state)
+    }
+  })
+
+  function saveSnapshot(): void {
+    lastSnapshotAt = Date.now()
+    localStorage.setItem(`${SNAPSHOT_PREFIX}${lastSnapshotAt}`, lastSerialized)
+    const keys = Object.keys(localStorage)
+      .filter((k) => k.startsWith(SNAPSHOT_PREFIX))
+      .sort()
+    for (const key of keys.slice(0, Math.max(0, keys.length - SNAPSHOT_KEEP))) {
+      localStorage.removeItem(key)
+    }
+    snapshotsVersion.value++
+  }
+
+  const snapshots = computed(() => {
+    void snapshotsVersion.value
+    return Object.keys(localStorage)
+      .filter((k) => k.startsWith(SNAPSHOT_PREFIX))
+      .sort()
+      .reverse()
+      .map((key) => {
+        const state = parseState(localStorage.getItem(key))
+        return {
+          key,
+          takenAt: new Date(Number(key.slice(SNAPSHOT_PREFIX.length))),
+          guests: state?.guests.length ?? 0,
+          seated: state?.tables.reduce((n, t) => n + t.seats.filter(Boolean).length, 0) ?? 0,
+        }
+      })
+  })
+
+  /** Restore a snapshot (recorded in undo history, so it can itself be undone). */
+  function restoreSnapshot(key: string): boolean {
+    const state = parseState(localStorage.getItem(key))
+    if (!state) return false
+    guests.value = state.guests
+    tables.value = state.tables
+    rules.value = state.rules
+    return true
+  }
+
+  // --- Derived state ---
 
   const groups = computed(() => {
     const seen: string[] = []
@@ -199,6 +333,62 @@ export const usePlannerStore = defineStore('planner', () => {
     return undefined
   }
 
+  // --- Rules ---
+
+  function addRule(a: string, b: string, kind: RuleKind): void {
+    if (a === b || !guestById.value.has(a) || !guestById.value.has(b)) return
+    const exists = rules.value.some(
+      (r) => r.kind === kind && ((r.a === a && r.b === b) || (r.a === b && r.b === a)),
+    )
+    if (!exists) rules.value.push({ id: crypto.randomUUID(), a, b, kind })
+  }
+
+  function removeRule(id: string): void {
+    rules.value = rules.value.filter((r) => r.id !== id)
+  }
+
+  /** Rules currently broken by the seating (both guests seated, wrong tables). */
+  const violations = computed<Violation[]>(() => {
+    const out: Violation[] = []
+    for (const rule of rules.value) {
+      const a = guestById.value.get(rule.a)
+      const b = guestById.value.get(rule.b)
+      if (!a || !b) continue
+      const tableA = tableByGuestId.value.get(rule.a)
+      const tableB = tableByGuestId.value.get(rule.b)
+      if (!tableA || !tableB) continue
+      if (rule.kind === 'apart' && tableA.id === tableB.id) {
+        out.push({ rule, a, b, message: `${a.name} and ${b.name} should not share a table (${tableA.name})` })
+      } else if (rule.kind !== 'apart' && tableA.id !== tableB.id) {
+        const label = rule.kind === 'couple' ? 'are a couple' : 'should sit together'
+        out.push({ rule, a, b, message: `${a.name} and ${b.name} ${label} but sit at ${tableA.name} and ${tableB.name}` })
+      }
+    }
+    return out
+  })
+
+  const violatingGuestIds = computed(() => {
+    const set = new Set<string>()
+    for (const v of violations.value) {
+      set.add(v.a.id)
+      set.add(v.b.id)
+    }
+    return set
+  })
+
+  /** Reorder the master list so each couple sits adjacent (partner pulled to partner). */
+  function snapCouplesAdjacent(): void {
+    for (const rule of rules.value.filter((r) => r.kind === 'couple')) {
+      const ia = guests.value.findIndex((g) => g.id === rule.a)
+      const ib = guests.value.findIndex((g) => g.id === rule.b)
+      if (ia === -1 || ib === -1 || Math.abs(ia - ib) === 1) continue
+      const [partner] = guests.value.splice(ib, 1)
+      if (!partner) continue
+      const anchor = guests.value.findIndex((g) => g.id === rule.a)
+      guests.value.splice(anchor + 1, 0, partner)
+    }
+  }
+
   // --- Guest actions ---
 
   function addGuest(name: string, group?: string, notes?: string): Guest | undefined {
@@ -232,6 +422,7 @@ export const usePlannerStore = defineStore('planner', () => {
 
   function removeGuest(id: string): void {
     guests.value = guests.value.filter((g) => g.id !== id)
+    rules.value = rules.value.filter((r) => r.a !== id && r.b !== id)
     unseatGuest(id)
   }
 
@@ -248,6 +439,7 @@ export const usePlannerStore = defineStore('planner', () => {
    * guests past the last seat end up unseated.
    */
   function assignAllInOrder(): void {
+    saveSnapshot()
     let cursor = 0
     for (const table of tables.value) {
       table.seats = table.seats.map(() => {
@@ -335,28 +527,30 @@ export const usePlannerStore = defineStore('planner', () => {
     guests.value.splice(to === -1 ? guests.value.length : to, 0, guest)
   }
 
-  /** Serialize the current plan for download. */
+  /** Serialize the current plan for download or sharing. */
   function exportState(): string {
-    const state: PersistedState = {
-      version: 1,
-      guests: guests.value,
-      tables: tables.value,
-    }
-    return JSON.stringify(state, null, 2)
+    return JSON.stringify(
+      { version: 1, guests: guests.value, tables: tables.value, rules: rules.value },
+      null,
+      2,
+    )
   }
 
-  /** Replace the whole plan from an exported file. Returns false if invalid. */
+  /** Replace the whole plan from an exported file or share link. Returns false if invalid. */
   function importState(json: string): boolean {
     const state = parseState(json)
     if (!state) return false
+    saveSnapshot()
     guests.value = state.guests
     tables.value = state.tables
+    rules.value = state.rules
     return true
   }
 
   return {
     guests,
     tables,
+    rules,
     groups,
     groupColor,
     tableRanges,
@@ -365,6 +559,17 @@ export const usePlannerStore = defineStore('planner', () => {
     unassignedGuests,
     totalSeats,
     seatedCount,
+    violations,
+    violatingGuestIds,
+    canUndo,
+    canRedo,
+    snapshots,
+    undo,
+    redo,
+    restoreSnapshot,
+    addRule,
+    removeRule,
+    snapCouplesAdjacent,
     addGuest,
     addGuestsBulk,
     updateGuest,

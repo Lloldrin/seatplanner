@@ -29,13 +29,13 @@ export function useCircleDrag(
     return ((slot % slotCount.value) + slotCount.value) % slotCount.value
   })
 
+  // Map the pointer into SVG user space so the angle stays correct under zoom/pan.
   function pointerAngle(event: PointerEvent): number {
     const svg = svgEl.value
-    if (!svg) return 0
-    const rect = svg.getBoundingClientRect()
-    const cx = rect.left + rect.width / 2
-    const cy = rect.top + rect.height / 2
-    return Math.atan2(event.clientY - cy, event.clientX - cx)
+    const matrix = svg?.getScreenCTM()
+    if (!svg || !matrix) return 0
+    const p = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+    return Math.atan2(p.y - 400, p.x - 400)
   }
 
   function startDrag(index: number, event: PointerEvent) {

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlannerStore } from '../stores/planner'
 import { useCircleReorder } from '../composables/useCircleDrag'
+import { useSvgZoom } from '../composables/useSvgZoom'
 
 const store = usePlannerStore()
 const router = useRouter()
@@ -13,6 +14,16 @@ const count = computed(() => store.guests.length)
 const { dragIndex, startDrag, displayAngle } = useCircleReorder(svgEl, count, (from, to) =>
   store.moveGuest(from, to),
 )
+const { viewBox, zoomed, zoomCenter, reset, onWheel, onPanStart } = useSvgZoom(svgEl)
+
+const search = ref('')
+const matchedIds = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return null
+  return new Set(store.guests.filter((g) => g.name.toLowerCase().includes(q)).map((g) => g.id))
+})
+
+const coupleCount = computed(() => store.rules.filter((r) => r.kind === 'couple').length)
 
 const CX = 400
 const CY = 400
@@ -37,7 +48,7 @@ const placed = computed(() =>
 function assignAll() {
   const accepted = confirm(
     `Seat all ${count.value} guests in this order — Table 1 fills first, then Table 2, …? ` +
-      'This replaces the current seating.',
+      'This replaces the current seating (a backup is kept under Backups).',
   )
   if (!accepted) return
   store.assignAllInOrder()
@@ -52,12 +63,28 @@ function assignAll() {
     </p>
 
     <template v-else>
-      <div class="flex w-full max-w-3xl items-center justify-between gap-3">
-        <p class="text-sm text-stone-500">
-          Arrange freely — who sits next to whom. No tables yet, just the order.
-        </p>
+      <div class="flex w-full max-w-3xl flex-wrap items-center gap-2">
+        <input
+          v-model="search"
+          type="search"
+          placeholder="Find a guest…"
+          class="w-44 rounded-lg border border-stone-300 bg-white px-3 py-1 text-sm focus:border-stone-500 focus:outline-none"
+        />
+        <div class="flex items-center gap-1 text-stone-500">
+          <button class="rounded-lg border border-stone-300 px-2.5 py-1 text-sm transition hover:bg-stone-100" title="Zoom in" @click="zoomCenter(1 / 1.4)">+</button>
+          <button class="rounded-lg border border-stone-300 px-2.5 py-1 text-sm transition hover:bg-stone-100" title="Zoom out" @click="zoomCenter(1.4)">−</button>
+          <button v-if="zoomed" class="rounded-lg border border-stone-300 px-2.5 py-1 text-xs transition hover:bg-stone-100" @click="reset">Reset</button>
+        </div>
         <button
-          class="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+          v-if="coupleCount"
+          class="rounded-lg border border-stone-300 px-3 py-1 text-xs text-stone-600 transition hover:bg-stone-100"
+          title="Pull each couple's partners next to each other in the order"
+          @click="store.snapCouplesAdjacent()"
+        >
+          Snap couples together
+        </button>
+        <button
+          class="ml-auto rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
           :disabled="!store.tables.length"
           :title="store.tables.length ? 'Turn this order into seat assignments' : 'Add tables first on the Tables tab'"
           @click="assignAll"
@@ -65,11 +92,17 @@ function assignAll() {
           Assign to tables
         </button>
       </div>
+      <p class="mt-1 w-full max-w-3xl text-xs text-stone-400">
+        Arrange freely — who sits next to whom. No tables yet, just the order.
+      </p>
 
       <svg
         ref="svgEl"
-        viewBox="0 0 800 800"
+        :viewBox="viewBox"
         class="max-h-[80vh] w-full max-w-3xl touch-none select-none"
+        :class="{ 'cursor-move': zoomed }"
+        @wheel.prevent="onWheel"
+        @pointerdown="onPanStart"
       >
         <g
           v-for="item in placed"
@@ -79,8 +112,16 @@ function assignAll() {
             transition: dragIndex === item.index ? 'none' : 'transform 150ms ease',
           }"
           class="cursor-grab"
-          @pointerdown.prevent="startDrag(item.index, $event)"
+          :opacity="matchedIds && !matchedIds.has(item.guest.id) ? 0.2 : 1"
+          @pointerdown.prevent.stop="startDrag(item.index, $event)"
         >
+          <circle
+            v-if="matchedIds?.has(item.guest.id)"
+            r="9"
+            fill="none"
+            stroke="#059669"
+            stroke-width="2"
+          />
           <circle
             r="5"
             :fill="store.groupColor(item.guest.group) ?? '#a8a29e'"
@@ -92,8 +133,8 @@ function assignAll() {
             :text-anchor="item.flipped ? 'end' : 'start'"
             dominant-baseline="central"
             :font-size="labelSize"
-            :font-weight="dragIndex === item.index ? 700 : 400"
-            fill="#44403c"
+            :font-weight="dragIndex === item.index || matchedIds?.has(item.guest.id) ? 700 : 400"
+            :fill="matchedIds?.has(item.guest.id) ? '#059669' : '#44403c'"
           >
             {{ item.guest.name }}
           </text>

@@ -7,5 +7,6 @@ export const router = createRouter({
     { path: '/arrange', name: 'arrange', component: () => import('./pages/ArrangePage.vue') },
     { path: '/circle', name: 'circle', component: () => import('./pages/CirclePage.vue') },
     { path: '/tables', name: 'tables', component: () => import('./pages/TablesPage.vue') },
+    { path: '/print', name: 'print', component: () => import('./pages/PrintPage.vue') },
   ],
 })

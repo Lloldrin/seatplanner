@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { Table } from '../stores/planner'
 import { usePlannerStore } from '../stores/planner'
 import GuestChip from '../components/GuestChip.vue'
+import RuleWarnings from '../components/RuleWarnings.vue'
 import TableCard from '../components/TableCard.vue'
 
 const store = usePlannerStore()
@@ -78,6 +79,8 @@ function onSeatClick(table: Table, seatIndex: number) {
         <template v-else-if="seatBalance > 0"> — {{ seatBalance }} spare</template>
       </p>
     </div>
+
+    <RuleWarnings class="mt-3" />
 
     <p v-if="!store.tables.length" class="mt-12 text-center text-stone-400">
       No tables yet — add some above, e.g. “2 tables of 8”.

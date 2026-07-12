@@ -72,7 +72,11 @@ function confirmRemove() {
           v-if="guest"
           :guest="guest"
           class="cursor-pointer"
-          :class="{ '!border-emerald-500 ring-1 ring-emerald-300': selectedGuestId === guest.id }"
+          :class="{
+            '!border-emerald-500 ring-1 ring-emerald-300': selectedGuestId === guest.id,
+            '!border-amber-400 ring-1 ring-amber-300':
+              selectedGuestId !== guest.id && store.violatingGuestIds.has(guest.id),
+          }"
           @click="emit('seatClick', index)"
         >
           <button

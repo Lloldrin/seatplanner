@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import type { RuleKind } from '../stores/planner'
 import { usePlannerStore } from '../stores/planner'
 
 const store = usePlannerStore()
@@ -8,6 +9,27 @@ const newName = ref('')
 const newGroup = ref('')
 const bulkOpen = ref(false)
 const bulkText = ref('')
+
+const ruleA = ref('')
+const ruleB = ref('')
+const ruleKind = ref<RuleKind>('couple')
+
+const KIND_LABELS: Record<RuleKind, string> = {
+  couple: '💍 couple',
+  together: '🤝 keep together',
+  apart: '⚡ keep apart',
+}
+
+function submitRule() {
+  if (ruleA.value && ruleB.value && ruleA.value !== ruleB.value) {
+    store.addRule(ruleA.value, ruleB.value, ruleKind.value)
+    ruleB.value = ''
+  }
+}
+
+function guestName(id: string): string {
+  return store.guests.find((g) => g.id === id)?.name ?? '?'
+}
 
 function submitGuest() {
   if (store.addGuest(newName.value, newGroup.value)) {
@@ -134,5 +156,50 @@ function groupCount(group: string): number {
         </button>
       </li>
     </ul>
+
+    <details v-if="store.guests.length >= 2" class="mt-6 rounded-lg border border-stone-200 bg-white p-3" :open="store.rules.length > 0">
+      <summary class="cursor-pointer text-sm font-semibold">
+        Rules
+        <span class="font-normal text-stone-400">· {{ store.rules.length }}</span>
+        <span class="ml-2 text-xs font-normal text-stone-400">
+          couples & keep together/apart — warnings show when the seating breaks them
+        </span>
+      </summary>
+      <form class="mt-3 flex flex-wrap items-center gap-2 text-sm" @submit.prevent="submitRule">
+        <select v-model="ruleA" class="rounded-lg border border-stone-300 bg-white px-2 py-1.5">
+          <option value="" disabled>Guest…</option>
+          <option v-for="g in store.guests" :key="g.id" :value="g.id">{{ g.name }}</option>
+        </select>
+        <select v-model="ruleKind" class="rounded-lg border border-stone-300 bg-white px-2 py-1.5">
+          <option v-for="(label, kind) in KIND_LABELS" :key="kind" :value="kind">{{ label }}</option>
+        </select>
+        <select v-model="ruleB" class="rounded-lg border border-stone-300 bg-white px-2 py-1.5">
+          <option value="" disabled>Guest…</option>
+          <option v-for="g in store.guests" :key="g.id" :value="g.id" :disabled="g.id === ruleA">
+            {{ g.name }}
+          </option>
+        </select>
+        <button
+          type="submit"
+          class="rounded-lg bg-stone-800 px-4 py-1.5 font-medium text-white transition hover:bg-stone-700"
+        >
+          Add rule
+        </button>
+      </form>
+      <ul v-if="store.rules.length" class="mt-3 divide-y divide-stone-100">
+        <li v-for="rule in store.rules" :key="rule.id" class="flex items-center gap-2 py-1.5 text-sm">
+          <span class="font-medium">{{ guestName(rule.a) }}</span>
+          <span class="text-stone-400">{{ KIND_LABELS[rule.kind] }}</span>
+          <span class="font-medium">{{ guestName(rule.b) }}</span>
+          <button
+            class="ml-auto rounded px-1.5 text-stone-300 transition hover:text-red-500"
+            title="Remove rule"
+            @click="store.removeRule(rule.id)"
+          >
+            ✕
+          </button>
+        </li>
+      </ul>
+    </details>
   </div>
 </template>

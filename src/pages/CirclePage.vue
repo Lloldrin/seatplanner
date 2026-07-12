@@ -4,12 +4,22 @@ import { computed, ref } from 'vue'
 import type { Guest, Table } from '../stores/planner'
 import { GROUP_COLORS, usePlannerStore } from '../stores/planner'
 import { slotAngle, useCircleDrag } from '../composables/useCircleDrag'
+import { useSvgZoom } from '../composables/useSvgZoom'
+import RuleWarnings from '../components/RuleWarnings.vue'
 
 const store = usePlannerStore()
 
 const showTables = useLocalStorage('seatplanner:circle-show-tables', true)
 
 const svgEl = ref<SVGSVGElement | null>(null)
+const { viewBox, zoomed, zoomCenter, reset, onWheel, onPanStart } = useSvgZoom(svgEl)
+
+const search = ref('')
+const matchedIds = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return null
+  return new Set(store.guests.filter((g) => g.name.toLowerCase().includes(q)).map((g) => g.id))
+})
 
 const CX = 400
 const CY = 400
@@ -151,9 +161,22 @@ const dropPoint = computed(() =>
     </p>
 
     <template v-else>
-      <div v-if="store.tables.length" class="flex w-full max-w-3xl justify-end">
+      <RuleWarnings class="max-w-3xl" />
+      <div class="flex w-full max-w-3xl flex-wrap items-center gap-2">
+        <input
+          v-model="search"
+          type="search"
+          placeholder="Find a guest…"
+          class="w-44 rounded-lg border border-stone-300 bg-white px-3 py-1 text-sm focus:border-stone-500 focus:outline-none"
+        />
+        <div class="flex items-center gap-1 text-stone-500">
+          <button class="rounded-lg border border-stone-300 px-2.5 py-1 text-sm transition hover:bg-stone-100" title="Zoom in" @click="zoomCenter(1 / 1.4)">+</button>
+          <button class="rounded-lg border border-stone-300 px-2.5 py-1 text-sm transition hover:bg-stone-100" title="Zoom out" @click="zoomCenter(1.4)">−</button>
+          <button v-if="zoomed" class="rounded-lg border border-stone-300 px-2.5 py-1 text-xs transition hover:bg-stone-100" @click="reset">Reset</button>
+        </div>
         <button
-          class="rounded-full border px-3 py-1 text-xs font-medium transition"
+          v-if="store.tables.length"
+          class="ml-auto rounded-full border px-3 py-1 text-xs font-medium transition"
           :class="showTables ? 'border-stone-700 bg-stone-800 text-white' : 'border-stone-300 text-stone-500 hover:bg-stone-100'"
           @click="showTables = !showTables"
         >
@@ -162,8 +185,11 @@ const dropPoint = computed(() =>
       </div>
       <svg
         ref="svgEl"
-        viewBox="0 0 800 800"
+        :viewBox="viewBox"
         class="max-h-[80vh] w-full max-w-3xl touch-none select-none"
+        :class="{ 'cursor-move': zoomed }"
+        @wheel.prevent="onWheel"
+        @pointerdown="onPanStart"
       >
         <!-- table segment arcs -->
         <g v-if="showTables">
@@ -237,8 +263,16 @@ const dropPoint = computed(() =>
             transition: dragIndex === item.index ? 'none' : 'transform 150ms ease',
           }"
           :class="item.slot.guest ? 'cursor-grab' : ''"
-          @pointerdown.prevent="item.slot.guest && startDrag(item.index, $event)"
+          :opacity="matchedIds && item.slot.guest && !matchedIds.has(item.slot.guest.id) ? 0.2 : 1"
+          @pointerdown.prevent.stop="item.slot.guest && startDrag(item.index, $event)"
         >
+          <circle
+            v-if="item.slot.guest && matchedIds?.has(item.slot.guest.id)"
+            r="9"
+            fill="none"
+            stroke="#059669"
+            stroke-width="2"
+          />
           <circle
             v-if="item.slot.guest"
             r="5"
@@ -253,8 +287,8 @@ const dropPoint = computed(() =>
             :text-anchor="item.flipped ? 'end' : 'start'"
             dominant-baseline="central"
             :font-size="labelSize"
-            :font-weight="dragIndex === item.index ? 700 : 400"
-            fill="#44403c"
+            :font-weight="dragIndex === item.index || matchedIds?.has(item.slot.guest.id) ? 700 : 400"
+            :fill="matchedIds?.has(item.slot.guest.id) ? '#059669' : '#44403c'"
           >
             {{ item.slot.guest.name }}
           </text>
