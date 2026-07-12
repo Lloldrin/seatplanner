@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "seatplanner",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "/home/lloldrin/Documents/development/seatPlanner", "dev"],
+      "port": 5173
+    }
+  ]
+}
