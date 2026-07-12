@@ -90,7 +90,7 @@ function runArc(run: Run): string {
 
 function runLabelPoint(run: Run): { x: number; y: number } {
   const mid = slotAngle(run.start, count.value) + ((run.length - 1) * slotSpacing.value) / 2
-  return polar(R_ARC - 26, mid)
+  return polar(R_ARC - 52, mid)
 }
 
 function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: number; y: number } } {
@@ -146,12 +146,14 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
             :x="runLabelPoint(run).x"
             :y="runLabelPoint(run).y"
             text-anchor="middle"
-            dominant-baseline="central"
             :fill="tableColor(run.table)"
-            font-size="12"
-            font-weight="600"
           >
-            {{ run.table.name }} · {{ run.length }}/{{ run.table.capacity }}
+            <tspan :x="runLabelPoint(run).x" dy="-2" font-size="12" font-weight="600">
+              {{ run.table.name }}
+            </tspan>
+            <tspan :x="runLabelPoint(run).x" dy="14" font-size="10" fill-opacity="0.75">
+              {{ run.length }}/{{ run.table.capacity }}
+            </tspan>
           </text>
         </g>
 
