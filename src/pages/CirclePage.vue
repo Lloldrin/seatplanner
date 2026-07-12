@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { useLocalStorage } from '@vueuse/core'
 import { computed, ref } from 'vue'
 import type { Table } from '../stores/planner'
 import { GROUP_COLORS, usePlannerStore } from '../stores/planner'
 import { slotAngle, useCircleDrag } from '../composables/useCircleDrag'
 
 const store = usePlannerStore()
+
+const showTables = useLocalStorage('seatplanner:circle-show-tables', true)
 
 const svgEl = ref<SVGSVGElement | null>(null)
 const count = computed(() => store.guests.length)
@@ -103,12 +106,22 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
     </p>
 
     <template v-else>
+      <div v-if="store.tables.length" class="flex w-full max-w-3xl justify-end">
+        <button
+          class="rounded-full border px-3 py-1 text-xs font-medium transition"
+          :class="showTables ? 'border-stone-700 bg-stone-800 text-white' : 'border-stone-300 text-stone-500 hover:bg-stone-100'"
+          @click="showTables = !showTables"
+        >
+          {{ showTables ? 'Tables shown' : 'Tables hidden' }}
+        </button>
+      </div>
       <svg
         ref="svgEl"
         viewBox="0 0 800 800"
         class="max-h-[80vh] w-full max-w-3xl touch-none select-none"
       >
         <!-- table segment arcs -->
+        <g v-if="showTables">
         <g v-for="run in runs" :key="`${run.table.id}-${run.start}`">
           <circle
             v-if="run.length === count"
@@ -138,7 +151,7 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
             font-size="12"
             font-weight="600"
           >
-            {{ run.table.name }}
+            {{ run.table.name }} · {{ run.length }}/{{ run.table.capacity }}
           </text>
         </g>
 
@@ -155,6 +168,7 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
           stroke-linecap="round"
           class="drop-shadow-[0_0_1px_rgba(0,0,0,0.6)]"
         />
+        </g>
 
         <!-- guests -->
         <g
