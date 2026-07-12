@@ -9,25 +9,24 @@ export function slotAngle(index: number, count: number): number {
 }
 
 /**
- * Drag-to-reorder around a circle rendered in an SVG.
+ * Drag a guest between fixed seat slots around a circle rendered in an SVG.
  *
- * While dragging, the guest's position is derived from the pointer's angle
- * relative to the circle center; on release the store order is updated once.
+ * Slots never move: the dragged name follows the pointer and `dropIndex` is
+ * the slot it would land on if released now (for a drop-target indicator).
  */
 export function useCircleDrag(
   svgEl: Ref<SVGSVGElement | null>,
-  count: Ref<number>,
-  onDrop: (fromIndex: number, toIndex: number) => void,
+  slotCount: Ref<number>,
+  onDrop: (fromSlot: number, toSlot: number) => void,
 ) {
   const dragIndex = ref<number | null>(null)
   const dragAngle = ref(0)
 
-  // Index the dragged item would land on if released now.
   const dropIndex = computed(() => {
-    if (dragIndex.value === null || count.value === 0) return null
+    if (dragIndex.value === null || slotCount.value === 0) return null
     const turns = (dragAngle.value + Math.PI / 2) / TAU
-    const slot = Math.round(turns * count.value)
-    return ((slot % count.value) + count.value) % count.value
+    const slot = Math.round(turns * slotCount.value)
+    return ((slot % slotCount.value) + slotCount.value) % slotCount.value
   })
 
   function pointerAngle(event: PointerEvent): number {
@@ -58,21 +57,10 @@ export function useCircleDrag(
     dragIndex.value = null
   }
 
-  /**
-   * Display angle for the item currently at `index`: the dragged item follows
-   * the pointer; others shift one slot to visualize the gap at the drop target.
-   */
+  /** Display angle: the dragged item follows the pointer, all others stay put. */
   function displayAngle(index: number): number {
-    const n = count.value
-    if (dragIndex.value === null || dropIndex.value === null) return slotAngle(index, n)
-    if (index === dragIndex.value) return dragAngle.value
-
-    // Where this item sits once the dragged item is removed…
-    let slot = index > dragIndex.value ? index - 1 : index
-    // …and shifted if the drop gap opens at or before it.
-    const gap = dropIndex.value
-    if (slot >= gap) slot += 1
-    return slotAngle(slot, n)
+    if (dragIndex.value === index) return dragAngle.value
+    return slotAngle(index, slotCount.value)
   }
 
   return { dragIndex, dropIndex, startDrag, displayAngle }

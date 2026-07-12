@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useLocalStorage } from '@vueuse/core'
 import { computed, ref } from 'vue'
-import type { Table } from '../stores/planner'
+import type { Guest, Table } from '../stores/planner'
 import { GROUP_COLORS, usePlannerStore } from '../stores/planner'
 import { slotAngle, useCircleDrag } from '../composables/useCircleDrag'
 
@@ -10,34 +10,75 @@ const store = usePlannerStore()
 const showTables = useLocalStorage('seatplanner:circle-show-tables', true)
 
 const svgEl = ref<SVGSVGElement | null>(null)
-const count = computed(() => store.guests.length)
-const { dragIndex, startDrag, displayAngle } = useCircleDrag(svgEl, count, (from, to) =>
-  store.moveGuestInCircle(from, to),
-)
 
 const CX = 400
 const CY = 400
-const R_DOT = 300 // guest dots
+const R_DOT = 300 // seat dots
 const R_ARC = 272 // table arcs, inside the dot ring
 const TAU = Math.PI * 2
 
-const slotSpacing = computed(() => (count.value ? TAU / count.value : 0))
+interface Slot {
+  key: string
+  guest?: Guest
+  table?: Table
+}
+
+// One slot per seat (empty seats included, so table segments never move),
+// then one slot per unseated guest at the end.
+const slots = computed<Slot[]>(() => {
+  const out: Slot[] = []
+  for (const { table } of store.tableRanges) {
+    for (const id of table.guestIds) {
+      const guest = store.guests.find((g) => g.id === id)
+      if (guest) out.push({ key: guest.id, guest, table })
+    }
+    for (let i = table.guestIds.length; i < table.capacity; i++) {
+      out.push({ key: `${table.id}-empty-${i}`, table })
+    }
+  }
+  for (const guest of store.unassignedGuests) out.push({ key: guest.id, guest })
+  return out
+})
+
+const slotCount = computed(() => slots.value.length)
+
+const { dragIndex, dropIndex, startDrag, displayAngle } = useCircleDrag(
+  svgEl,
+  slotCount,
+  (fromSlot, toSlot) => {
+    const guest = slots.value[fromSlot]?.guest
+    if (!guest) return
+    if (toSlot < store.totalSeats) {
+      const range = store.tableRanges.find((r) => toSlot >= r.start && toSlot < r.end)
+      if (range) store.assignGuest(guest.id, range.table.id, toSlot - range.start)
+    } else {
+      store.unseatToPosition(guest.id, toSlot - store.totalSeats)
+    }
+  },
+)
+
+const slotSpacing = computed(() => (slotCount.value ? TAU / slotCount.value : 0))
 const halfSlot = computed(() => slotSpacing.value / 2)
-const labelSize = computed(() => (count.value > 60 ? 10 : count.value > 40 ? 11 : 13))
+const labelSize = computed(() => (slotCount.value > 60 ? 10 : slotCount.value > 40 ? 11 : 13))
 
 function polar(radius: number, angle: number): { x: number; y: number } {
   return { x: CX + radius * Math.cos(angle), y: CY + radius * Math.sin(angle) }
 }
 
 const placed = computed(() =>
-  store.guests.map((guest, index) => {
+  slots.value.map((slot, index) => {
     const angle = displayAngle(index)
     const point = polar(R_DOT, angle)
     const flipped = Math.cos(angle) < -0.001
     const deg = (angle * 180) / Math.PI + (flipped ? 180 : 0)
-    return { guest, index, point, deg, flipped }
+    return { slot, index, point, deg, flipped }
   }),
 )
+
+function tableColor(table: Table): string {
+  const index = store.tables.findIndex((t) => t.id === table.id)
+  return GROUP_COLORS[index % GROUP_COLORS.length]!
+}
 
 interface Run {
   key: string
@@ -48,56 +89,40 @@ interface Run {
   length: number
 }
 
-// Tables claim fixed consecutive ranges of the circle; arcs cover the guests
-// currently inside each range and stay put while guests move through them.
-// Guests past the seated boundary form a gray "Unseated" segment at the end.
+// Static segments: every table always spans its full capacity in slots;
+// unseated guests form a gray segment at the end.
 const runs = computed<Run[]>(() => {
-  const n = count.value
-  const seated = store.seatedCount
-  if (!n || !store.tables.length) return []
-  const out: Run[] = []
-  for (const range of store.tableRanges) {
-    if (range.start >= seated) continue
-    const length = Math.min(range.end, seated) - range.start
-    out.push({
-      key: range.table.id,
-      color: tableColor(range.table),
-      title: range.table.name,
-      counter: `${length}/${range.table.capacity}`,
-      start: range.start,
-      length,
-    })
-  }
-  if (seated < n) {
+  if (!store.tables.length) return []
+  const out: Run[] = store.tableRanges.map((range) => ({
+    key: range.table.id,
+    color: tableColor(range.table),
+    title: range.table.name,
+    counter: `${range.table.guestIds.length}/${range.table.capacity}`,
+    start: range.start,
+    length: range.table.capacity,
+  }))
+  const unseated = store.unassignedGuests.length
+  if (unseated > 0) {
     out.push({
       key: 'unseated',
       color: '#78716c',
       title: 'Unseated',
-      counter: `${n - seated}`,
-      start: seated,
-      length: n - seated,
+      counter: `${unseated}`,
+      start: store.totalSeats,
+      length: unseated,
     })
   }
   return out
 })
 
-// Cut positions: a divider before guest c marks a segment starting there.
-// c = 0 wraps around to sit between the last and first guest.
+// Divider before slot c marks a segment starting there; c = 0 wraps around.
 const boundaries = computed(() => {
-  const n = count.value
-  if (n < 2 || !store.tables.length) return []
-  const cuts = new Set<number>()
-  for (const run of runs.value) cuts.add(run.start)
-  return [...cuts]
+  if (slotCount.value < 2 || !store.tables.length) return []
+  return [...new Set(runs.value.map((run) => run.start))]
 })
 
-function tableColor(table: Table): string {
-  const index = store.tables.findIndex((t) => t.id === table.id)
-  return GROUP_COLORS[index % GROUP_COLORS.length]!
-}
-
 function runArc(run: Run): string {
-  const n = count.value
+  const n = slotCount.value
   const gap = Math.min(0.03, halfSlot.value * 0.4)
   const from = slotAngle(run.start, n) - halfSlot.value + gap
   const to = slotAngle(run.start, n) + (run.length - 1) * slotSpacing.value + halfSlot.value - gap
@@ -108,19 +133,23 @@ function runArc(run: Run): string {
 }
 
 function runLabelPoint(run: Run): { x: number; y: number } {
-  const mid = slotAngle(run.start, count.value) + ((run.length - 1) * slotSpacing.value) / 2
+  const mid = slotAngle(run.start, slotCount.value) + ((run.length - 1) * slotSpacing.value) / 2
   return polar(R_ARC - 52, mid)
 }
 
 function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: number; y: number } } {
-  const angle = slotAngle(cut, count.value) - halfSlot.value
+  const angle = slotAngle(cut, slotCount.value) - halfSlot.value
   return { a: polar(R_ARC - 18, angle), b: polar(R_DOT - 8, angle) }
 }
+
+const dropPoint = computed(() =>
+  dropIndex.value === null ? null : polar(R_DOT, slotAngle(dropIndex.value, slotCount.value)),
+)
 </script>
 
 <template>
   <div class="flex flex-col items-center">
-    <p v-if="!count" class="mt-12 text-center text-stone-400">
+    <p v-if="!slotCount" class="mt-12 text-center text-stone-400">
       Add some guests first — then arrange them around the circle here.
     </p>
 
@@ -143,7 +172,7 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
         <g v-if="showTables">
         <g v-for="run in runs" :key="run.key">
           <circle
-            v-if="run.length === count"
+            v-if="run.length === slotCount"
             :cx="CX"
             :cy="CY"
             :r="R_ARC"
@@ -176,7 +205,7 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
           </text>
         </g>
 
-        <!-- dividers where adjacent guests belong to different tables -->
+        <!-- dividers between segments -->
         <line
           v-for="index in boundaries"
           :key="`boundary-${index}`"
@@ -191,25 +220,38 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
         />
         </g>
 
-        <!-- guests -->
+        <!-- drop target indicator -->
+        <circle
+          v-if="dropPoint"
+          :cx="dropPoint.x"
+          :cy="dropPoint.y"
+          r="10"
+          fill="none"
+          stroke="#10b981"
+          stroke-width="2"
+        />
+
+        <!-- seats -->
         <g
           v-for="item in placed"
-          :key="item.guest.id"
+          :key="item.slot.key"
           :style="{
             transform: `translate(${item.point.x}px, ${item.point.y}px) rotate(${item.deg}deg)`,
             transition: dragIndex === item.index ? 'none' : 'transform 150ms ease',
           }"
-          class="cursor-grab"
-          :class="{ 'cursor-grabbing': dragIndex === item.index }"
-          @pointerdown.prevent="startDrag(item.index, $event)"
+          :class="item.slot.guest ? 'cursor-grab' : ''"
+          @pointerdown.prevent="item.slot.guest && startDrag(item.index, $event)"
         >
           <circle
+            v-if="item.slot.guest"
             r="5"
-            :fill="store.groupColor(item.guest.group) ?? '#a8a29e'"
+            :fill="store.groupColor(item.slot.guest.group) ?? '#a8a29e'"
             :stroke="dragIndex === item.index ? '#292524' : 'white'"
             stroke-width="1.5"
           />
+          <circle v-else r="4" fill="white" stroke="#d6d3d1" stroke-width="1.5" />
           <text
+            v-if="item.slot.guest"
             :x="item.flipped ? -12 : 12"
             :text-anchor="item.flipped ? 'end' : 'start'"
             dominant-baseline="central"
@@ -217,7 +259,7 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
             :font-weight="dragIndex === item.index ? 700 : 400"
             fill="#44403c"
           >
-            {{ item.guest.name }}
+            {{ item.slot.guest.name }}
           </text>
         </g>
 
@@ -229,7 +271,7 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
           fill="#a8a29e"
           font-size="15"
         >
-          {{ count }} guests
+          {{ store.guests.length }} guests
         </text>
       </svg>
 
@@ -243,7 +285,9 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
           {{ group }}
         </span>
       </div>
-      <p class="mt-1 text-xs text-stone-400">Drag a name around the circle to reorder.</p>
+      <p class="mt-1 text-xs text-stone-400">
+        Drag a name onto a seat to move them — hollow dots are empty seats.
+      </p>
     </template>
   </div>
 </template>

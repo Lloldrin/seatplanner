@@ -24,9 +24,11 @@ const unassignedList = computed<Guest[]>({
     store.unassignedGuests.filter((g) =>
       g.name.toLowerCase().includes(search.value.trim().toLowerCase()),
     ),
-  // Called after any drop touching this panel; guests dropped here move to the
-  // end of the circle (past the last seat), drags out are handled by the table.
-  set: (list) => store.reconcileUnassignedList(list.map((g) => g.id)),
+  // Called after any drop touching this panel; unseating is idempotent and
+  // guests dragged out are no longer in `list`, so this only parks newcomers.
+  set: (list) => {
+    for (const guest of list) store.unseatGuest(guest.id)
+  },
 })
 
 const seatBalance = computed(() => store.totalSeats - store.guests.length)
@@ -113,8 +115,8 @@ function toggleSelect(guestId: string) {
             />
           </VueDraggable>
           <p class="mt-2 text-xs text-stone-400">
-            Drag guests onto a table, or click a guest then a table. Tables seat the circle in
-            order, so moving one guest shifts the ones after them.
+            Drag guests onto a table, or click a guest then a table. Seats stay put — moving
+            someone leaves their old seat empty.
           </p>
         </div>
       </aside>

@@ -13,7 +13,7 @@ const store = usePlannerStore()
 const seated = computed<Guest[]>({
   get: () => store.tableGuests(props.table.id),
   set: (list) =>
-    store.reconcileTableList(
+    store.setTableGuests(
       props.table.id,
       list.map((g) => g.id),
     ),
@@ -29,7 +29,7 @@ function seatSelectedGuest() {
 function confirmRemove() {
   if (
     !seated.value.length ||
-    confirm(`Remove ${props.table.name}? Its guests shift into the following tables.`)
+    confirm(`Remove ${props.table.name}? Its ${seated.value.length} guests become unseated.`)
   ) {
     store.removeTable(props.table.id)
   }
@@ -39,7 +39,7 @@ function confirmRemove() {
 <template>
   <div
     class="flex flex-col rounded-xl border bg-white p-3 shadow-sm transition"
-    :class="selectedGuestId ? 'cursor-pointer border-emerald-400 ring-1 ring-emerald-200' : 'border-stone-200'"
+    :class="selectedGuestId && !isFull ? 'cursor-pointer border-emerald-400 ring-1 ring-emerald-200' : 'border-stone-200'"
     @click="seatSelectedGuest"
   >
     <div class="flex items-center gap-2">
@@ -83,7 +83,7 @@ function confirmRemove() {
 
     <VueDraggable
       v-model="seated"
-      group="guests"
+      :group="{ name: 'guests', put: () => !isFull }"
       :animation="150"
       class="mt-2 flex min-h-16 flex-1 flex-wrap content-start gap-1.5 rounded-lg bg-stone-50 p-2"
     >
