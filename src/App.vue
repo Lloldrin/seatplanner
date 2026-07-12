@@ -6,6 +6,7 @@ const store = usePlannerStore()
 
 const tabs = [
   { to: '/', label: 'Guests' },
+  { to: '/arrange', label: 'Arrange' },
   { to: '/circle', label: 'Circle' },
   { to: '/tables', label: 'Tables' },
 ]

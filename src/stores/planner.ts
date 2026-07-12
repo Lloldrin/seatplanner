@@ -235,6 +235,30 @@ export const usePlannerStore = defineStore('planner', () => {
     unseatGuest(id)
   }
 
+  /** Reorder the master guest list (the Arrange view's circle order). */
+  function moveGuest(fromIndex: number, toIndex: number): void {
+    if (fromIndex === toIndex) return
+    const [guest] = guests.value.splice(fromIndex, 1)
+    if (guest) guests.value.splice(toIndex, 0, guest)
+  }
+
+  /**
+   * Materialize the Arrange order into seats: the first guests fill table 1's
+   * seats in order, the next fill table 2, … Replaces all current assignments;
+   * guests past the last seat end up unseated.
+   */
+  function assignAllInOrder(): void {
+    let cursor = 0
+    for (const table of tables.value) {
+      table.seats = table.seats.map(() => {
+        const guest = guests.value[cursor]
+        if (!guest) return null
+        cursor++
+        return guest.id
+      })
+    }
+  }
+
   // --- Table actions ---
 
   function addTable(capacity: number, name?: string): Table {
@@ -345,6 +369,8 @@ export const usePlannerStore = defineStore('planner', () => {
     addGuestsBulk,
     updateGuest,
     removeGuest,
+    moveGuest,
+    assignAllInOrder,
     addTable,
     addTables,
     updateTable,

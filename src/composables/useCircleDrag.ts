@@ -65,3 +65,34 @@ export function useCircleDrag(
 
   return { dragIndex, dropIndex, startDrag, displayAngle }
 }
+
+/**
+ * Drag-to-reorder a list around a circle (Arrange view): while dragging, the
+ * other items slide aside to show the insertion gap; on release the item is
+ * spliced into the new index.
+ */
+export function useCircleReorder(
+  svgEl: Ref<SVGSVGElement | null>,
+  count: Ref<number>,
+  onDrop: (fromIndex: number, toIndex: number) => void,
+) {
+  const { dragIndex, dropIndex, startDrag, displayAngle: followAngle } = useCircleDrag(svgEl, count, onDrop)
+
+  /**
+   * The dragged item follows the pointer; the rest shift one slot to open a
+   * gap at the drop target, previewing the final order.
+   */
+  function displayAngle(index: number): number {
+    const n = count.value
+    if (dragIndex.value === null || dropIndex.value === null || index === dragIndex.value) {
+      return followAngle(index)
+    }
+    // Where this item sits once the dragged item is removed…
+    let slot = index > dragIndex.value ? index - 1 : index
+    // …and shifted if the drop gap opens at or before it.
+    if (slot >= dropIndex.value) slot += 1
+    return slotAngle(slot, n)
+  }
+
+  return { dragIndex, dropIndex, startDrag, displayAngle }
+}
