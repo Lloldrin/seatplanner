@@ -12,8 +12,8 @@ export interface Table {
   id: string
   name: string
   capacity: number
-  /** Seated guests in seat order; length <= capacity. Assignments are sticky. */
-  guestIds: string[]
+  /** One entry per seat: a guest id or null (empty). Length === capacity. */
+  seats: (string | null)[]
 }
 
 /** The fixed block of circle slots this table owns: slots [start, end). */
@@ -23,10 +23,19 @@ export interface TableRange {
   end: number
 }
 
+interface PersistedTable {
+  id: string
+  name: string
+  capacity: number
+  seats?: (string | null)[]
+  /** Legacy (sticky-list model): compact guest list. */
+  guestIds?: string[]
+}
+
 interface PersistedState {
   version: 1
   guests: Guest[]
-  tables: Table[]
+  tables: PersistedTable[]
   /** Legacy (range-based model): explicit unseated tail length. */
   unseated?: number
 }
@@ -59,30 +68,35 @@ function parseState(raw: string | null): { guests: Guest[]; tables: Table[] } | 
       Array.isArray((parsed as PersistedState).tables)
     ) {
       const state = parsed as PersistedState
-      const guestIds = new Set(state.guests.map((g) => g.id))
+      const known = new Set(state.guests.map((g) => g.id))
       const claimed = new Set<string>()
+      const claim = (id: unknown): string | null => {
+        if (typeof id !== 'string' || !known.has(id) || claimed.has(id)) return null
+        claimed.add(id)
+        return id
+      }
 
-      const hasLists = state.tables.every((t) =>
-        Array.isArray((t as Partial<Table>).guestIds),
-      )
+      // Oldest shape (range-based): seat guests by their circle position.
+      const hasAnyList = state.tables.every((t) => t.seats ?? t.guestIds)
       let cursor = 0
       const seatedMax = Math.max(0, state.guests.length - (state.unseated ?? 0))
 
       const tables = state.tables.map((t) => {
-        let ids: string[]
-        if (hasLists) {
-          ids = (t.guestIds ?? []).filter(
-            (id) => guestIds.has(id) && !claimed.has(id),
-          )
-        } else {
-          // Migrate from the range-based model: seat guests by their circle position.
+        let seats: (string | null)[]
+        if (Array.isArray(t.seats)) {
+          seats = t.seats.map(claim)
+        } else if (Array.isArray(t.guestIds)) {
+          seats = t.guestIds.map(claim).filter((id) => id !== null)
+        } else if (!hasAnyList) {
           const take = Math.max(0, Math.min(t.capacity, seatedMax - cursor))
-          ids = state.guests.slice(cursor, cursor + take).map((g) => g.id)
+          seats = state.guests.slice(cursor, cursor + take).map((g) => claim(g.id))
           cursor += take
+        } else {
+          seats = []
         }
-        ids = ids.slice(0, t.capacity)
-        for (const id of ids) claimed.add(id)
-        return { id: t.id, name: t.name, capacity: t.capacity, guestIds: ids }
+        seats = seats.slice(0, t.capacity)
+        while (seats.length < t.capacity) seats.push(null)
+        return { id: t.id, name: t.name, capacity: t.capacity, seats }
       })
       return { guests: state.guests, tables }
     }
@@ -98,9 +112,9 @@ function loadState(): { guests: Guest[]; tables: Table[] } {
 }
 
 /**
- * Seating model: every table owns a fixed block of `capacity` circle slots and
- * an explicit guest list. Assignments are sticky — freeing a seat never pulls
- * guests over from another table. Guests in no table are unseated.
+ * Seating model: every table has numbered seats (capacity slots). A guest sits
+ * at exactly one seat; empty seats stay empty and rearranging one guest never
+ * shifts another (placing onto an occupied seat swaps the two guests).
  */
 export const usePlannerStore = defineStore('planner', () => {
   const initial = loadState()
@@ -149,29 +163,41 @@ export const usePlannerStore = defineStore('planner', () => {
   )
 
   const seatedCount = computed(() =>
-    tables.value.reduce((sum, table) => sum + table.guestIds.length, 0),
+    tables.value.reduce((sum, table) => sum + table.seats.filter(Boolean).length, 0),
   )
 
   const tableByGuestId = computed(() => {
     const map = new Map<string, Table>()
     for (const table of tables.value) {
-      for (const id of table.guestIds) map.set(id, table)
+      for (const id of table.seats) {
+        if (id) map.set(id, table)
+      }
     }
     return map
   })
 
-  function tableGuests(tableId: string): Guest[] {
+  const guestById = computed(() => new Map(guests.value.map((g) => [g.id, g])))
+
+  /** Seat-by-seat occupants of a table (null = empty seat). */
+  function seatOccupants(tableId: string): (Guest | null)[] {
     const table = tables.value.find((t) => t.id === tableId)
     if (!table) return []
-    return table.guestIds
-      .map((id) => guests.value.find((g) => g.id === id))
-      .filter((g): g is Guest => g !== undefined)
+    return table.seats.map((id) => (id ? (guestById.value.get(id) ?? null) : null))
   }
 
   /** Guests in no table, in master (entry/circle) order. */
   const unassignedGuests = computed(() =>
     guests.value.filter((g) => !tableByGuestId.value.has(g.id)),
   )
+
+  /** The guest's current seat, if any. */
+  function findSeat(guestId: string): { table: Table; index: number } | undefined {
+    for (const table of tables.value) {
+      const index = table.seats.indexOf(guestId)
+      if (index !== -1) return { table, index }
+    }
+    return undefined
+  }
 
   // --- Guest actions ---
 
@@ -206,9 +232,7 @@ export const usePlannerStore = defineStore('planner', () => {
 
   function removeGuest(id: string): void {
     guests.value = guests.value.filter((g) => g.id !== id)
-    for (const table of tables.value) {
-      table.guestIds = table.guestIds.filter((guestId) => guestId !== id)
-    }
+    unseatGuest(id)
   }
 
   // --- Table actions ---
@@ -218,7 +242,7 @@ export const usePlannerStore = defineStore('planner', () => {
       id: crypto.randomUUID(),
       name: name ?? `Table ${tables.value.length + 1}`,
       capacity,
-      guestIds: [],
+      seats: Array.from({ length: capacity }, () => null),
     }
     tables.value.push(table)
     return table
@@ -233,8 +257,14 @@ export const usePlannerStore = defineStore('planner', () => {
     if (!table) return
     if (patch.name !== undefined) table.name = patch.name.trim() || table.name
     if (patch.capacity !== undefined) {
-      // A table can never shrink below its current occupancy.
-      table.capacity = Math.max(1, Math.floor(patch.capacity), table.guestIds.length)
+      // Never drop an occupied seat: can't shrink past the last occupied one.
+      const lastOccupied = table.seats.reduce((last, id, i) => (id ? i : last), -1)
+      const capacity = Math.max(1, Math.floor(patch.capacity), lastOccupied + 1)
+      table.seats =
+        capacity > table.capacity
+          ? [...table.seats, ...Array.from({ length: capacity - table.capacity }, () => null)]
+          : table.seats.slice(0, capacity)
+      table.capacity = capacity
     }
   }
 
@@ -243,25 +273,29 @@ export const usePlannerStore = defineStore('planner', () => {
   }
 
   /**
-   * Seat a guest at a table, optionally at a specific seat position.
-   * Returns false (and changes nothing) if the table is full.
+   * Put a guest on a specific seat (or the first empty one). If the seat is
+   * occupied, the two guests swap places — nobody else moves. Returns false
+   * only when no seat is available.
    */
-  function assignGuest(guestId: string, tableId: string, position?: number): boolean {
+  function assignGuest(guestId: string, tableId: string, seatIndex?: number): boolean {
     const table = tables.value.find((t) => t.id === tableId)
-    if (!table || !guests.value.some((g) => g.id === guestId)) return false
-    const isMember = table.guestIds.includes(guestId)
-    if (!isMember && table.guestIds.length >= table.capacity) return false
-    unseatGuest(guestId)
-    const to = Math.min(position ?? table.guestIds.length, table.guestIds.length)
-    table.guestIds.splice(to, 0, guestId)
+    if (!table || !guestById.value.has(guestId)) return false
+    const index = seatIndex ?? table.seats.indexOf(null)
+    if (index < 0 || index >= table.capacity) return false
+    if (table.seats[index] === guestId) return true
+
+    const previous = findSeat(guestId)
+    const occupant = table.seats[index]
+    table.seats[index] = guestId
+    if (previous) previous.table.seats[previous.index] = occupant ?? null
+    // If the guest came from the unseated zone, a swapped-out occupant becomes unseated.
     return true
   }
 
-  /** Remove a guest from whatever table they sit at; their seat stays empty. */
+  /** Remove a guest from their seat; the seat stays empty. */
   function unseatGuest(guestId: string): void {
-    for (const table of tables.value) {
-      table.guestIds = table.guestIds.filter((id) => id !== guestId)
-    }
+    const seat = findSeat(guestId)
+    if (seat) seat.table.seats[seat.index] = null
   }
 
   /** Unseat and place at `position` within the unseated zone (master-order move). */
@@ -296,20 +330,6 @@ export const usePlannerStore = defineStore('planner', () => {
     return true
   }
 
-  /** Replace a table's guest list wholesale (drag & drop sync between cards). */
-  function setTableGuests(tableId: string, ids: string[]): void {
-    const table = tables.value.find((t) => t.id === tableId)
-    if (!table) return
-    const known = new Set(guests.value.map((g) => g.id))
-    const clean = [...new Set(ids)].filter((id) => known.has(id)).slice(0, table.capacity)
-    for (const other of tables.value) {
-      if (other.id !== tableId) {
-        other.guestIds = other.guestIds.filter((id) => !clean.includes(id))
-      }
-    }
-    table.guestIds = clean
-  }
-
   return {
     guests,
     tables,
@@ -317,7 +337,7 @@ export const usePlannerStore = defineStore('planner', () => {
     groupColor,
     tableRanges,
     tableByGuestId,
-    tableGuests,
+    seatOccupants,
     unassignedGuests,
     totalSeats,
     seatedCount,
@@ -332,7 +352,6 @@ export const usePlannerStore = defineStore('planner', () => {
     assignGuest,
     unseatGuest,
     unseatToPosition,
-    setTableGuests,
     exportState,
     importState,
   }

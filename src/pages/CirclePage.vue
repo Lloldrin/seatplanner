@@ -23,18 +23,15 @@ interface Slot {
   table?: Table
 }
 
-// One slot per seat (empty seats included, so table segments never move),
-// then one slot per unseated guest at the end.
+// One slot per seat (seat numbers are positions, empty seats included, so
+// table segments never move), then one slot per unseated guest at the end.
 const slots = computed<Slot[]>(() => {
   const out: Slot[] = []
   for (const { table } of store.tableRanges) {
-    for (const id of table.guestIds) {
-      const guest = store.guests.find((g) => g.id === id)
-      if (guest) out.push({ key: guest.id, guest, table })
-    }
-    for (let i = table.guestIds.length; i < table.capacity; i++) {
-      out.push({ key: `${table.id}-empty-${i}`, table })
-    }
+    table.seats.forEach((id, index) => {
+      const guest = id ? store.guests.find((g) => g.id === id) : undefined
+      out.push(guest ? { key: guest.id, guest, table } : { key: `${table.id}-seat-${index}`, table })
+    })
   }
   for (const guest of store.unassignedGuests) out.push({ key: guest.id, guest })
   return out
@@ -97,7 +94,7 @@ const runs = computed<Run[]>(() => {
     key: range.table.id,
     color: tableColor(range.table),
     title: range.table.name,
-    counter: `${range.table.guestIds.length}/${range.table.capacity}`,
+    counter: `${range.table.seats.filter(Boolean).length}/${range.table.capacity}`,
     start: range.start,
     length: range.table.capacity,
   }))
@@ -286,7 +283,7 @@ const dropPoint = computed(() =>
         </span>
       </div>
       <p class="mt-1 text-xs text-stone-400">
-        Drag a name onto a seat to move them — hollow dots are empty seats.
+        Drag a name onto a hollow dot to take that seat, or onto another guest to swap seats.
       </p>
     </template>
   </div>

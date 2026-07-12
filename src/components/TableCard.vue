@@ -1,35 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { VueDraggable } from 'vue-draggable-plus'
-import type { Guest, Table } from '../stores/planner'
+import type { Table } from '../stores/planner'
 import { usePlannerStore } from '../stores/planner'
 import GuestChip from './GuestChip.vue'
 
 const props = defineProps<{ table: Table; selectedGuestId: string | null }>()
-const emit = defineEmits<{ seatSelected: [] }>()
+const emit = defineEmits<{ seatClick: [seatIndex: number] }>()
 
 const store = usePlannerStore()
 
-const seated = computed<Guest[]>({
-  get: () => store.tableGuests(props.table.id),
-  set: (list) =>
-    store.setTableGuests(
-      props.table.id,
-      list.map((g) => g.id),
-    ),
-})
-
-const isFull = computed(() => seated.value.length >= props.table.capacity)
-
-function seatSelectedGuest() {
-  if (!props.selectedGuestId) return
-  if (store.assignGuest(props.selectedGuestId, props.table.id)) emit('seatSelected')
-}
+const occupants = computed(() => store.seatOccupants(props.table.id))
+const occupiedCount = computed(() => occupants.value.filter(Boolean).length)
+const isFull = computed(() => occupiedCount.value >= props.table.capacity)
 
 function confirmRemove() {
   if (
-    !seated.value.length ||
-    confirm(`Remove ${props.table.name}? Its ${seated.value.length} guests become unseated.`)
+    !occupiedCount.value ||
+    confirm(`Remove ${props.table.name}? Its ${occupiedCount.value} guests become unseated.`)
   ) {
     store.removeTable(props.table.id)
   }
@@ -39,17 +26,15 @@ function confirmRemove() {
 <template>
   <div
     class="flex flex-col rounded-xl border bg-white p-3 shadow-sm transition"
-    :class="selectedGuestId && !isFull ? 'cursor-pointer border-emerald-400 ring-1 ring-emerald-200' : 'border-stone-200'"
-    @click="seatSelectedGuest"
+    :class="selectedGuestId ? 'border-emerald-400 ring-1 ring-emerald-200' : 'border-stone-200'"
   >
     <div class="flex items-center gap-2">
       <input
         :value="table.name"
         class="w-0 min-w-0 flex-1 rounded px-1 py-0.5 text-sm font-semibold focus:bg-stone-50 focus:outline-none"
-        @click.stop
         @change="store.updateTable(table.id, { name: ($event.target as HTMLInputElement).value })"
       />
-      <label class="flex items-center gap-1 text-xs text-stone-400" @click.stop>
+      <label class="flex items-center gap-1 text-xs text-stone-400">
         seats
         <input
           :value="table.capacity"
@@ -62,7 +47,7 @@ function confirmRemove() {
       <button
         class="rounded px-1 text-stone-300 transition hover:text-red-500"
         title="Remove table"
-        @click.stop="confirmRemove"
+        @click="confirmRemove"
       >
         ✕
       </button>
@@ -73,29 +58,41 @@ function confirmRemove() {
         <div
           class="h-full rounded-full transition-all"
           :class="isFull ? 'bg-emerald-500' : 'bg-stone-400'"
-          :style="{ width: `${Math.min(100, (seated.length / table.capacity) * 100)}%` }"
+          :style="{ width: `${Math.min(100, (occupiedCount / table.capacity) * 100)}%` }"
         />
       </div>
       <span class="text-xs tabular-nums" :class="isFull ? 'text-emerald-600' : 'text-stone-400'">
-        {{ seated.length }}/{{ table.capacity }}
+        {{ occupiedCount }}/{{ table.capacity }}
       </span>
     </div>
 
-    <VueDraggable
-      v-model="seated"
-      :group="{ name: 'guests', put: () => !isFull }"
-      :animation="150"
-      class="mt-2 flex min-h-16 flex-1 flex-wrap content-start gap-1.5 rounded-lg bg-stone-50 p-2"
-    >
-      <GuestChip v-for="guest in seated" :key="guest.id" :guest="guest" class="cursor-grab">
-        <button
-          class="text-stone-300 transition hover:text-red-500"
-          title="Unseat"
-          @click.stop="store.unseatGuest(guest.id)"
+    <div class="mt-2 flex min-h-16 flex-1 flex-wrap content-start gap-1.5 rounded-lg bg-stone-50 p-2">
+      <template v-for="(guest, index) in occupants" :key="guest?.id ?? `${table.id}-${index}`">
+        <GuestChip
+          v-if="guest"
+          :guest="guest"
+          class="cursor-pointer"
+          :class="{ '!border-emerald-500 ring-1 ring-emerald-300': selectedGuestId === guest.id }"
+          @click="emit('seatClick', index)"
         >
-          ✕
+          <button
+            class="text-stone-300 transition hover:text-red-500"
+            title="Unseat"
+            @click.stop="store.unseatGuest(guest.id)"
+          >
+            ✕
+          </button>
+        </GuestChip>
+        <button
+          v-else
+          class="inline-flex min-w-8 items-center justify-center rounded-full border border-dashed px-2 py-1 text-xs transition"
+          :class="selectedGuestId ? 'border-emerald-400 text-emerald-600 hover:bg-emerald-50' : 'border-stone-300 text-stone-300'"
+          :title="`Seat ${index + 1} — empty`"
+          @click="emit('seatClick', index)"
+        >
+          {{ index + 1 }}
         </button>
-      </GuestChip>
-    </VueDraggable>
+      </template>
+    </div>
   </div>
 </template>

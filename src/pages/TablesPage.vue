@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { VueDraggable } from 'vue-draggable-plus'
-import type { Guest } from '../stores/planner'
+import type { Table } from '../stores/planner'
 import { usePlannerStore } from '../stores/planner'
 import GuestChip from '../components/GuestChip.vue'
 import TableCard from '../components/TableCard.vue'
@@ -19,22 +18,27 @@ function addTables() {
   }
 }
 
-const unassignedList = computed<Guest[]>({
-  get: () =>
-    store.unassignedGuests.filter((g) =>
-      g.name.toLowerCase().includes(search.value.trim().toLowerCase()),
-    ),
-  // Called after any drop touching this panel; unseating is idempotent and
-  // guests dragged out are no longer in `list`, so this only parks newcomers.
-  set: (list) => {
-    for (const guest of list) store.unseatGuest(guest.id)
-  },
-})
+const unassignedList = computed(() =>
+  store.unassignedGuests.filter((g) =>
+    g.name.toLowerCase().includes(search.value.trim().toLowerCase()),
+  ),
+)
 
 const seatBalance = computed(() => store.totalSeats - store.guests.length)
 
 function toggleSelect(guestId: string) {
   selectedGuestId.value = selectedGuestId.value === guestId ? null : guestId
+}
+
+function onSeatClick(table: Table, seatIndex: number) {
+  const occupantId = table.seats[seatIndex] ?? null
+  if (selectedGuestId.value && selectedGuestId.value !== occupantId) {
+    // Place the selected guest here; an occupant swaps into their old spot.
+    store.assignGuest(selectedGuestId.value, table.id, seatIndex)
+    selectedGuestId.value = null
+  } else if (occupantId) {
+    toggleSelect(occupantId)
+  }
 }
 </script>
 
@@ -98,25 +102,19 @@ function toggleSelect(guestId: string) {
           <p v-else-if="!store.unassignedGuests.length" class="mt-3 text-sm text-emerald-600">
             Everyone has a seat 🎉
           </p>
-          <VueDraggable
-            v-model="unassignedList"
-            group="guests"
-            :animation="150"
-            :sort="false"
-            class="mt-2 flex min-h-24 flex-wrap content-start gap-1.5"
-          >
+          <div class="mt-2 flex min-h-24 flex-wrap content-start gap-1.5">
             <GuestChip
               v-for="guest in unassignedList"
               :key="guest.id"
               :guest="guest"
-              class="cursor-grab"
+              class="cursor-pointer"
               :class="{ '!border-emerald-500 ring-1 ring-emerald-300': selectedGuestId === guest.id }"
               @click="toggleSelect(guest.id)"
             />
-          </VueDraggable>
+          </div>
           <p class="mt-2 text-xs text-stone-400">
-            Drag guests onto a table, or click a guest then a table. Seats stay put — moving
-            someone leaves their old seat empty.
+            Click a guest, then a seat to place them. Clicking an occupied seat swaps the two
+            guests; ✕ unseats. Seats never shift on their own.
           </p>
         </div>
       </aside>
@@ -127,7 +125,7 @@ function toggleSelect(guestId: string) {
           :key="table.id"
           :table="table"
           :selected-guest-id="selectedGuestId"
-          @seat-selected="selectedGuestId = null"
+          @seat-click="onSeatClick(table, $event)"
         />
       </div>
     </div>
