@@ -11,18 +11,15 @@ const emit = defineEmits<{ seatSelected: [] }>()
 const store = usePlannerStore()
 
 const seated = computed<Guest[]>({
-  get: () =>
-    props.table.guestIds
-      .map((id) => store.guests.find((g) => g.id === id))
-      .filter((g): g is Guest => g !== undefined),
+  get: () => store.tableGuests(props.table.id),
   set: (list) =>
-    store.setTableGuests(
+    store.reconcileTableList(
       props.table.id,
       list.map((g) => g.id),
     ),
 })
 
-const isFull = computed(() => props.table.guestIds.length >= props.table.capacity)
+const isFull = computed(() => seated.value.length >= props.table.capacity)
 
 function seatSelectedGuest() {
   if (!props.selectedGuestId) return
@@ -31,8 +28,8 @@ function seatSelectedGuest() {
 
 function confirmRemove() {
   if (
-    !props.table.guestIds.length ||
-    confirm(`Remove ${props.table.name}? Its ${props.table.guestIds.length} guests become unassigned.`)
+    !seated.value.length ||
+    confirm(`Remove ${props.table.name}? Its guests shift into the following tables.`)
   ) {
     store.removeTable(props.table.id)
   }
@@ -42,7 +39,7 @@ function confirmRemove() {
 <template>
   <div
     class="flex flex-col rounded-xl border bg-white p-3 shadow-sm transition"
-    :class="selectedGuestId && !isFull ? 'cursor-pointer border-emerald-400 ring-1 ring-emerald-200' : 'border-stone-200'"
+    :class="selectedGuestId ? 'cursor-pointer border-emerald-400 ring-1 ring-emerald-200' : 'border-stone-200'"
     @click="seatSelectedGuest"
   >
     <div class="flex items-center gap-2">
@@ -76,25 +73,25 @@ function confirmRemove() {
         <div
           class="h-full rounded-full transition-all"
           :class="isFull ? 'bg-emerald-500' : 'bg-stone-400'"
-          :style="{ width: `${Math.min(100, (table.guestIds.length / table.capacity) * 100)}%` }"
+          :style="{ width: `${Math.min(100, (seated.length / table.capacity) * 100)}%` }"
         />
       </div>
       <span class="text-xs tabular-nums" :class="isFull ? 'text-emerald-600' : 'text-stone-400'">
-        {{ table.guestIds.length }}/{{ table.capacity }}
+        {{ seated.length }}/{{ table.capacity }}
       </span>
     </div>
 
     <VueDraggable
       v-model="seated"
-      :group="{ name: 'guests', put: () => !isFull }"
+      group="guests"
       :animation="150"
       class="mt-2 flex min-h-16 flex-1 flex-wrap content-start gap-1.5 rounded-lg bg-stone-50 p-2"
     >
       <GuestChip v-for="guest in seated" :key="guest.id" :guest="guest" class="cursor-grab">
         <button
           class="text-stone-300 transition hover:text-red-500"
-          title="Unseat guest"
-          @click.stop="store.unassignGuest(guest.id)"
+          title="Move to end of circle"
+          @click.stop="store.moveGuestToEnd(guest.id)"
         >
           ✕
         </button>

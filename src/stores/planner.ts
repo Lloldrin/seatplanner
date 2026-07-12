@@ -12,7 +12,13 @@ export interface Table {
   id: string
   name: string
   capacity: number
-  guestIds: string[]
+}
+
+/** The slice of the guest order this table covers: guests[start, end). */
+export interface TableRange {
+  table: Table
+  start: number
+  end: number
 }
 
 interface PersistedState {
@@ -49,7 +55,11 @@ function loadState(): Pick<PersistedState, 'guests' | 'tables'> {
       Array.isArray((parsed as PersistedState).tables)
     ) {
       const state = parsed as PersistedState
-      return { guests: state.guests, tables: state.tables }
+      return {
+        guests: state.guests,
+        // Strip legacy fields (early versions stored per-table guest lists).
+        tables: state.tables.map((t) => ({ id: t.id, name: t.name, capacity: t.capacity })),
+      }
     }
   } catch {
     // Corrupt data: start fresh rather than crash.
@@ -57,6 +67,11 @@ function loadState(): Pick<PersistedState, 'guests' | 'tables'> {
   return { guests: [], tables: [] }
 }
 
+/**
+ * Seating model: tables claim consecutive ranges of the guest order.
+ * Table 1 seats guests[0..cap1), table 2 seats guests[cap1..cap1+cap2), etc.
+ * Reordering the circle IS reseating; guests past the last seat are unseated.
+ */
 export const usePlannerStore = defineStore('planner', () => {
   const initial = loadState()
   const guests = ref<Guest[]>(initial.guests)
@@ -90,21 +105,39 @@ export const usePlannerStore = defineStore('planner', () => {
     return GROUP_COLORS[index % GROUP_COLORS.length]
   }
 
-  const tableByGuestId = computed(() => {
-    const map = new Map<string, Table>()
-    for (const table of tables.value) {
-      for (const guestId of table.guestIds) map.set(guestId, table)
-    }
-    return map
+  const tableRanges = computed<TableRange[]>(() => {
+    let start = 0
+    return tables.value.map((table) => {
+      const range = { table, start, end: start + table.capacity }
+      start = range.end
+      return range
+    })
   })
-
-  const unassignedGuests = computed(() =>
-    guests.value.filter((guest) => !tableByGuestId.value.has(guest.id)),
-  )
 
   const totalSeats = computed(() =>
     tables.value.reduce((sum, table) => sum + table.capacity, 0),
   )
+
+  function tableForIndex(index: number): Table | undefined {
+    return tableRanges.value.find((r) => index >= r.start && index < r.end)?.table
+  }
+
+  const tableByGuestId = computed(() => {
+    const map = new Map<string, Table>()
+    guests.value.forEach((guest, index) => {
+      const table = tableForIndex(index)
+      if (table) map.set(guest.id, table)
+    })
+    return map
+  })
+
+  function tableGuests(tableId: string): Guest[] {
+    const range = tableRanges.value.find((r) => r.table.id === tableId)
+    if (!range) return []
+    return guests.value.slice(range.start, Math.min(range.end, guests.value.length))
+  }
+
+  const unassignedGuests = computed(() => guests.value.slice(totalSeats.value))
 
   // --- Guest actions ---
 
@@ -139,15 +172,17 @@ export const usePlannerStore = defineStore('planner', () => {
 
   function removeGuest(id: string): void {
     guests.value = guests.value.filter((g) => g.id !== id)
-    for (const table of tables.value) {
-      table.guestIds = table.guestIds.filter((guestId) => guestId !== id)
-    }
   }
 
   function moveGuest(fromIndex: number, toIndex: number): void {
     if (fromIndex === toIndex) return
     const [guest] = guests.value.splice(fromIndex, 1)
     if (guest) guests.value.splice(toIndex, 0, guest)
+  }
+
+  function moveGuestToEnd(guestId: string): void {
+    const from = guests.value.findIndex((g) => g.id === guestId)
+    if (from !== -1) moveGuest(from, guests.value.length - 1)
   }
 
   // --- Table actions ---
@@ -157,7 +192,6 @@ export const usePlannerStore = defineStore('planner', () => {
       id: crypto.randomUUID(),
       name: name ?? `Table ${tables.value.length + 1}`,
       capacity,
-      guestIds: [],
     }
     tables.value.push(table)
     return table
@@ -171,42 +205,65 @@ export const usePlannerStore = defineStore('planner', () => {
     const table = tables.value.find((t) => t.id === id)
     if (!table) return
     if (patch.name !== undefined) table.name = patch.name.trim() || table.name
-    if (patch.capacity !== undefined && patch.capacity >= table.guestIds.length) {
-      table.capacity = Math.max(1, Math.floor(patch.capacity))
-    }
+    if (patch.capacity !== undefined) table.capacity = Math.max(1, Math.floor(patch.capacity))
   }
 
   function removeTable(id: string): void {
     tables.value = tables.value.filter((t) => t.id !== id)
   }
 
-  function assignGuest(guestId: string, tableId: string, seatIndex?: number): boolean {
-    const table = tables.value.find((t) => t.id === tableId)
-    if (!table) return false
-    const alreadyHere = table.guestIds.includes(guestId)
-    if (!alreadyHere && table.guestIds.length >= table.capacity) return false
-    unassignGuest(guestId)
-    const index = seatIndex ?? table.guestIds.length
-    table.guestIds.splice(Math.min(index, table.guestIds.length), 0, guestId)
+  /** Move a guest into a table's range (at its last seat). Guests behind them cascade. */
+  function assignGuest(guestId: string, tableId: string): boolean {
+    const range = tableRanges.value.find((r) => r.table.id === tableId)
+    const from = guests.value.findIndex((g) => g.id === guestId)
+    if (!range || from === -1) return false
+    if (from >= range.start && from < range.end) return true
+    const to =
+      from < range.start
+        ? Math.min(range.end, guests.value.length) - 1
+        : Math.max(range.start, range.end - 1)
+    moveGuest(from, to)
     return true
   }
 
-  /** Replace a table's seating wholesale (drag & drop sync) — pulls the guests from any other table. */
-  function setTableGuests(tableId: string, guestIds: string[]): void {
-    const table = tables.value.find((t) => t.id === tableId)
-    if (!table) return
-    const ids = [...new Set(guestIds)].slice(0, table.capacity)
-    for (const other of tables.value) {
-      if (other.id !== tableId) {
-        other.guestIds = other.guestIds.filter((id) => !ids.includes(id))
+  /**
+   * Sync a table's displayed guest list after a drag & drop. Detects the single
+   * added or reordered guest and translates it into a move in the global order;
+   * removal-only changes are ignored (the gaining list performs the move).
+   */
+  function reconcileTableList(tableId: string, ids: string[]): void {
+    const range = tableRanges.value.find((r) => r.table.id === tableId)
+    if (!range) return
+    const prev = tableGuests(tableId).map((g) => g.id)
+    const added = ids.filter((id) => !prev.includes(id))
+
+    if (added.length === 1) {
+      const guestId = added[0]!
+      const from = guests.value.findIndex((g) => g.id === guestId)
+      if (from === -1) return
+      const to = Math.min(range.start + ids.indexOf(guestId), guests.value.length - 1)
+      moveGuest(from, to)
+      return
+    }
+
+    if (added.length === 0 && ids.length === prev.length && ids.some((id, i) => id !== prev[i])) {
+      // In-table reorder: find the one guest whose removal makes both orders agree.
+      const without = (arr: string[], id: string) => arr.filter((x) => x !== id)
+      for (const [newPos, id] of ids.entries()) {
+        const rest = without(ids, id)
+        if (without(prev, id).every((x, i) => x === rest[i])) {
+          moveGuest(range.start + prev.indexOf(id), range.start + newPos)
+          return
+        }
       }
     }
-    table.guestIds = ids
   }
 
-  function unassignGuest(guestId: string): void {
-    for (const table of tables.value) {
-      table.guestIds = table.guestIds.filter((id) => id !== guestId)
+  /** Sync the unseated (overflow) list after a drop: anything new moves to the end. */
+  function reconcileUnassignedList(ids: string[]): void {
+    const overflow = new Set(unassignedGuests.value.map((g) => g.id))
+    for (const id of ids) {
+      if (!overflow.has(id)) moveGuestToEnd(id)
     }
   }
 
@@ -215,7 +272,10 @@ export const usePlannerStore = defineStore('planner', () => {
     tables,
     groups,
     groupColor,
+    tableRanges,
+    tableForIndex,
     tableByGuestId,
+    tableGuests,
     unassignedGuests,
     totalSeats,
     addGuest,
@@ -223,12 +283,13 @@ export const usePlannerStore = defineStore('planner', () => {
     updateGuest,
     removeGuest,
     moveGuest,
+    moveGuestToEnd,
     addTable,
     addTables,
     updateTable,
     removeTable,
     assignGuest,
-    setTableGuests,
-    unassignGuest,
+    reconcileTableList,
+    reconcileUnassignedList,
   }
 })

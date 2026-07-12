@@ -36,46 +36,37 @@ const placed = computed(() =>
   }),
 )
 
-function tableIdAt(index: number): string | null {
-  const guest = store.guests[index]
-  return guest ? (store.tableByGuestId.get(guest.id)?.id ?? null) : null
-}
-
-// Indices i where guest i and guest i+1 (wrapping) sit at different tables.
-const boundaries = computed(() => {
-  const n = count.value
-  if (n < 2) return []
-  const out: number[] = []
-  for (let i = 0; i < n; i++) {
-    if (tableIdAt(i) !== tableIdAt((i + 1) % n)) out.push(i)
-  }
-  return out
-})
-
 interface Run {
   table: Table
   start: number
   length: number
 }
 
-// Contiguous same-table segments of the circle (unassigned stretches excluded).
+// Tables claim fixed consecutive ranges of the circle; arcs cover the guests
+// currently inside each range and stay put while guests move through them.
 const runs = computed<Run[]>(() => {
   const n = count.value
   if (!n) return []
-  const cuts = boundaries.value
-  if (!cuts.length) {
-    const table = store.tableByGuestId.get(store.guests[0]!.id)
-    return table ? [{ table, start: 0, length: n }] : []
+  return store.tableRanges
+    .filter((range) => range.start < n)
+    .map((range) => ({
+      table: range.table,
+      start: range.start,
+      length: Math.min(range.end, n) - range.start,
+    }))
+})
+
+// Cut positions: a divider before guest c marks a table starting (or seating
+// ending) there. c = 0 wraps around to sit between the last and first guest.
+const boundaries = computed(() => {
+  const n = count.value
+  if (n < 2 || !store.tables.length) return []
+  const cuts = new Set<number>()
+  for (const range of store.tableRanges) {
+    if (range.start < n) cuts.add(range.start)
   }
-  const out: Run[] = []
-  for (let k = 0; k < cuts.length; k++) {
-    const start = (cuts[k]! + 1) % n
-    const end = cuts[(k + 1) % cuts.length]!
-    const length = ((end - start + n) % n) + 1
-    const table = store.tableByGuestId.get(store.guests[start]!.id)
-    if (table) out.push({ table, start, length })
-  }
-  return out
+  if (store.totalSeats < n) cuts.add(store.totalSeats)
+  return [...cuts]
 })
 
 function tableColor(table: Table): string {
@@ -99,8 +90,8 @@ function runLabelPoint(run: Run): { x: number; y: number } {
   return polar(R_ARC - 26, mid)
 }
 
-function boundaryLine(index: number): { a: { x: number; y: number }; b: { x: number; y: number } } {
-  const angle = slotAngle(index, count.value) + halfSlot.value
+function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: number; y: number } } {
+  const angle = slotAngle(cut, count.value) - halfSlot.value
   return { a: polar(R_ARC - 18, angle), b: polar(R_DOT - 8, angle) }
 }
 </script>
