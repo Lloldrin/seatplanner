@@ -12,7 +12,7 @@ const showTables = useLocalStorage('seatplanner:circle-show-tables', true)
 const svgEl = ref<SVGSVGElement | null>(null)
 const count = computed(() => store.guests.length)
 const { dragIndex, startDrag, displayAngle } = useCircleDrag(svgEl, count, (from, to) =>
-  store.moveGuest(from, to),
+  store.moveGuestInCircle(from, to),
 )
 
 const CX = 400
@@ -40,35 +40,54 @@ const placed = computed(() =>
 )
 
 interface Run {
-  table: Table
+  key: string
+  color: string
+  title: string
+  counter: string
   start: number
   length: number
 }
 
 // Tables claim fixed consecutive ranges of the circle; arcs cover the guests
 // currently inside each range and stay put while guests move through them.
+// Guests past the seated boundary form a gray "Unseated" segment at the end.
 const runs = computed<Run[]>(() => {
   const n = count.value
-  if (!n) return []
-  return store.tableRanges
-    .filter((range) => range.start < n)
-    .map((range) => ({
-      table: range.table,
+  const seated = store.seatedCount
+  if (!n || !store.tables.length) return []
+  const out: Run[] = []
+  for (const range of store.tableRanges) {
+    if (range.start >= seated) continue
+    const length = Math.min(range.end, seated) - range.start
+    out.push({
+      key: range.table.id,
+      color: tableColor(range.table),
+      title: range.table.name,
+      counter: `${length}/${range.table.capacity}`,
       start: range.start,
-      length: Math.min(range.end, n) - range.start,
-    }))
+      length,
+    })
+  }
+  if (seated < n) {
+    out.push({
+      key: 'unseated',
+      color: '#78716c',
+      title: 'Unseated',
+      counter: `${n - seated}`,
+      start: seated,
+      length: n - seated,
+    })
+  }
+  return out
 })
 
-// Cut positions: a divider before guest c marks a table starting (or seating
-// ending) there. c = 0 wraps around to sit between the last and first guest.
+// Cut positions: a divider before guest c marks a segment starting there.
+// c = 0 wraps around to sit between the last and first guest.
 const boundaries = computed(() => {
   const n = count.value
   if (n < 2 || !store.tables.length) return []
   const cuts = new Set<number>()
-  for (const range of store.tableRanges) {
-    if (range.start < n) cuts.add(range.start)
-  }
-  if (store.totalSeats < n) cuts.add(store.totalSeats)
+  for (const run of runs.value) cuts.add(run.start)
   return [...cuts]
 })
 
@@ -122,14 +141,14 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
       >
         <!-- table segment arcs -->
         <g v-if="showTables">
-        <g v-for="run in runs" :key="`${run.table.id}-${run.start}`">
+        <g v-for="run in runs" :key="run.key">
           <circle
             v-if="run.length === count"
             :cx="CX"
             :cy="CY"
             :r="R_ARC"
             fill="none"
-            :stroke="tableColor(run.table)"
+            :stroke="run.color"
             stroke-opacity="0.3"
             stroke-width="7"
           />
@@ -137,7 +156,7 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
             v-else
             :d="runArc(run)"
             fill="none"
-            :stroke="tableColor(run.table)"
+            :stroke="run.color"
             stroke-opacity="0.3"
             stroke-width="7"
             stroke-linecap="round"
@@ -146,13 +165,13 @@ function boundaryLine(cut: number): { a: { x: number; y: number }; b: { x: numbe
             :x="runLabelPoint(run).x"
             :y="runLabelPoint(run).y"
             text-anchor="middle"
-            :fill="tableColor(run.table)"
+            :fill="run.color"
           >
             <tspan :x="runLabelPoint(run).x" dy="-2" font-size="12" font-weight="600">
-              {{ run.table.name }}
+              {{ run.title }}
             </tspan>
             <tspan :x="runLabelPoint(run).x" dy="14" font-size="10" fill-opacity="0.75">
-              {{ run.length }}/{{ run.table.capacity }}
+              {{ run.counter }}
             </tspan>
           </text>
         </g>

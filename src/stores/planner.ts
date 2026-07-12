@@ -25,6 +25,8 @@ interface PersistedState {
   version: 1
   guests: Guest[]
   tables: Table[]
+  /** Number of guests at the end of the order that are deliberately unseated. */
+  unseated?: number
 }
 
 const STORAGE_KEY = 'seatplanner:v1'
@@ -43,10 +45,10 @@ export const GROUP_COLORS = [
   '#0284c7', // sky
 ]
 
-function loadState(): Pick<PersistedState, 'guests' | 'tables'> {
+function loadState(): Pick<PersistedState, 'guests' | 'tables'> & { unseated: number } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { guests: [], tables: [] }
+    if (!raw) return { guests: [], tables: [], unseated: 0 }
     const parsed: unknown = JSON.parse(raw)
     if (
       typeof parsed === 'object' &&
@@ -59,31 +61,36 @@ function loadState(): Pick<PersistedState, 'guests' | 'tables'> {
         guests: state.guests,
         // Strip legacy fields (early versions stored per-table guest lists).
         tables: state.tables.map((t) => ({ id: t.id, name: t.name, capacity: t.capacity })),
+        unseated: typeof state.unseated === 'number' ? state.unseated : 0,
       }
     }
   } catch {
     // Corrupt data: start fresh rather than crash.
   }
-  return { guests: [], tables: [] }
+  return { guests: [], tables: [], unseated: 0 }
 }
 
 /**
  * Seating model: tables claim consecutive ranges of the guest order.
  * Table 1 seats guests[0..cap1), table 2 seats guests[cap1..cap1+cap2), etc.
- * Reordering the circle IS reseating; guests past the last seat are unseated.
+ * Reordering the circle IS reseating. The last `unseatedCount` guests are
+ * deliberately unseated ("no table yet"); guests past the total seat count
+ * are unseated too (capacity overflow).
  */
 export const usePlannerStore = defineStore('planner', () => {
   const initial = loadState()
   const guests = ref<Guest[]>(initial.guests)
   const tables = ref<Table[]>(initial.tables)
+  const unseatedCount = ref(initial.unseated)
 
   watch(
-    [guests, tables],
+    [guests, tables, unseatedCount],
     () => {
       const state: PersistedState = {
         version: 1,
         guests: guests.value,
         tables: tables.value,
+        unseated: unseatedCount.value,
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
     },
@@ -118,7 +125,13 @@ export const usePlannerStore = defineStore('planner', () => {
     tables.value.reduce((sum, table) => sum + table.capacity, 0),
   )
 
+  /** Guests[0, seatedCount) sit at tables; everyone after is unseated. */
+  const seatedCount = computed(() =>
+    Math.max(0, Math.min(guests.value.length - unseatedCount.value, totalSeats.value)),
+  )
+
   function tableForIndex(index: number): Table | undefined {
+    if (index >= seatedCount.value) return undefined
     return tableRanges.value.find((r) => index >= r.start && index < r.end)?.table
   }
 
@@ -134,10 +147,14 @@ export const usePlannerStore = defineStore('planner', () => {
   function tableGuests(tableId: string): Guest[] {
     const range = tableRanges.value.find((r) => r.table.id === tableId)
     if (!range) return []
-    return guests.value.slice(range.start, Math.min(range.end, guests.value.length))
+    return guests.value.slice(range.start, Math.min(range.end, seatedCount.value))
   }
 
-  const unassignedGuests = computed(() => guests.value.slice(totalSeats.value))
+  const unassignedGuests = computed(() => guests.value.slice(seatedCount.value))
+
+  function bumpUnseated(delta: 1 | -1): void {
+    unseatedCount.value = Math.max(0, Math.min(guests.value.length, unseatedCount.value + delta))
+  }
 
   // --- Guest actions ---
 
@@ -150,7 +167,8 @@ export const usePlannerStore = defineStore('planner', () => {
       group: group?.trim() || undefined,
       notes: notes?.trim() || undefined,
     }
-    guests.value.push(guest)
+    // Insert at the end of the seated block so deliberately unseated guests stay last.
+    guests.value.splice(seatedCount.value, 0, guest)
     return guest
   }
 
@@ -171,7 +189,10 @@ export const usePlannerStore = defineStore('planner', () => {
   }
 
   function removeGuest(id: string): void {
-    guests.value = guests.value.filter((g) => g.id !== id)
+    const index = guests.value.findIndex((g) => g.id === id)
+    if (index === -1) return
+    if (index >= guests.value.length - unseatedCount.value) bumpUnseated(-1)
+    guests.value.splice(index, 1)
   }
 
   function moveGuest(fromIndex: number, toIndex: number): void {
@@ -180,9 +201,22 @@ export const usePlannerStore = defineStore('planner', () => {
     if (guest) guests.value.splice(toIndex, 0, guest)
   }
 
-  function moveGuestToEnd(guestId: string): void {
+  /** Circle drag: a move across the seated/unseated boundary changes zone. */
+  function moveGuestInCircle(fromIndex: number, toIndex: number): void {
+    const boundary = seatedCount.value
+    const wasSeated = fromIndex < boundary
+    const nowSeated = toIndex < boundary
+    moveGuest(fromIndex, toIndex)
+    if (wasSeated && !nowSeated) bumpUnseated(1)
+    else if (!wasSeated && nowSeated) bumpUnseated(-1)
+  }
+
+  /** Park a guest in the unseated zone (end of the circle order). */
+  function unseatGuest(guestId: string): void {
     const from = guests.value.findIndex((g) => g.id === guestId)
-    if (from !== -1) moveGuest(from, guests.value.length - 1)
+    if (from === -1 || from >= seatedCount.value) return
+    moveGuest(from, guests.value.length - 1)
+    bumpUnseated(1)
   }
 
   // --- Table actions ---
@@ -212,17 +246,25 @@ export const usePlannerStore = defineStore('planner', () => {
     tables.value = tables.value.filter((t) => t.id !== id)
   }
 
-  /** Move a guest into a table's range (at its last seat). Guests behind them cascade. */
+  /**
+   * Move a guest into a table's range (at its last occupied seat). Guests
+   * behind them cascade; note that in this model empty seats only exist at
+   * the end, so a guest can never land later than the end of the seated block.
+   */
   function assignGuest(guestId: string, tableId: string): boolean {
     const range = tableRanges.value.find((r) => r.table.id === tableId)
     const from = guests.value.findIndex((g) => g.id === guestId)
     if (!range || from === -1) return false
-    if (from >= range.start && from < range.end) return true
-    const to =
-      from < range.start
-        ? Math.min(range.end, guests.value.length) - 1
-        : Math.max(range.start, range.end - 1)
-    moveGuest(from, to)
+    const boundary = seatedCount.value
+    const blockEnd = Math.min(range.end, boundary)
+    if (from >= range.start && from < blockEnd) return true
+
+    if (from >= boundary) {
+      moveGuest(from, Math.min(range.end, boundary + 1) - 1)
+      bumpUnseated(-1)
+    } else {
+      moveGuest(from, Math.max(0, blockEnd - 1))
+    }
     return true
   }
 
@@ -241,8 +283,12 @@ export const usePlannerStore = defineStore('planner', () => {
       const guestId = added[0]!
       const from = guests.value.findIndex((g) => g.id === guestId)
       if (from === -1) return
-      const to = Math.min(range.start + ids.indexOf(guestId), guests.value.length - 1)
+      const boundary = seatedCount.value
+      const wasUnseated = from >= boundary
+      const cap = wasUnseated ? boundary : boundary - 1
+      const to = Math.max(0, Math.min(range.start + ids.indexOf(guestId), cap, guests.value.length - 1))
       moveGuest(from, to)
+      if (wasUnseated) bumpUnseated(-1)
       return
     }
 
@@ -259,11 +305,11 @@ export const usePlannerStore = defineStore('planner', () => {
     }
   }
 
-  /** Sync the unseated (overflow) list after a drop: anything new moves to the end. */
+  /** Sync the unseated list after a drop: anything new gets parked. */
   function reconcileUnassignedList(ids: string[]): void {
-    const overflow = new Set(unassignedGuests.value.map((g) => g.id))
+    const unseated = new Set(unassignedGuests.value.map((g) => g.id))
     for (const id of ids) {
-      if (!overflow.has(id)) moveGuestToEnd(id)
+      if (!unseated.has(id)) unseatGuest(id)
     }
   }
 
@@ -278,12 +324,14 @@ export const usePlannerStore = defineStore('planner', () => {
     tableGuests,
     unassignedGuests,
     totalSeats,
+    seatedCount,
     addGuest,
     addGuestsBulk,
     updateGuest,
     removeGuest,
     moveGuest,
-    moveGuestToEnd,
+    moveGuestInCircle,
+    unseatGuest,
     addTable,
     addTables,
     updateTable,

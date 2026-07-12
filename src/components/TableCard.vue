@@ -90,8 +90,8 @@ function confirmRemove() {
       <GuestChip v-for="guest in seated" :key="guest.id" :guest="guest" class="cursor-grab">
         <button
           class="text-stone-300 transition hover:text-red-500"
-          title="Move to end of circle"
-          @click.stop="store.moveGuestToEnd(guest.id)"
+          title="Unseat"
+          @click.stop="store.unseatGuest(guest.id)"
         >
           ✕
         </button>
