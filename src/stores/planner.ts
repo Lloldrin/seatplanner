@@ -8,12 +8,25 @@ export interface Guest {
   notes?: string
 }
 
+export type TableShapeKind = 'round' | 'square' | 'rectangle'
+
+export interface TableShape {
+  kind: TableShapeKind
+  /**
+   * Seats per side, clockwise from the top edge: [top, right, bottom, left].
+   * Only present for square/rectangle; their sum equals the table capacity.
+   */
+  sides?: [number, number, number, number]
+}
+
 export interface Table {
   id: string
   name: string
   capacity: number
   /** One entry per seat: a guest id or null (empty). Length === capacity. */
   seats: (string | null)[]
+  /** Optional physical shape; absent means a plain round table. */
+  shape?: TableShape
 }
 
 export type RuleKind = 'couple' | 'together' | 'apart'
@@ -44,6 +57,7 @@ interface PersistedTable {
   name: string
   capacity: number
   seats?: (string | null)[]
+  shape?: { kind?: string; sides?: number[] }
   /** Legacy (sticky-list model): compact guest list. */
   guestIds?: string[]
 }
@@ -81,6 +95,32 @@ interface PlanState {
   guests: Guest[]
   tables: Table[]
   rules: Rule[]
+}
+
+/** Spread a seat count as evenly as possible over four sides [top, right, bottom, left]. */
+function distributeSquare(capacity: number): [number, number, number, number] {
+  const n = Math.max(0, Math.floor(capacity))
+  const base = Math.floor(n / 4)
+  const sides: [number, number, number, number] = [base, base, base, base]
+  for (let i = 0; i < n - base * 4; i++) sides[i]++
+  return sides
+}
+
+/**
+ * Turn a user's side list into [top, right, bottom, left]:
+ *  - one number  → all four sides equal
+ *  - two numbers → [long, short] repeated (long = top/bottom, short = left/right)
+ *  - three/four  → taken as given (three reuses the second value for the last side)
+ */
+function normalizeSides(input: number[]): [number, number, number, number] {
+  const a = input.map((n) => Math.max(0, Math.floor(Number(n) || 0)))
+  if (a.length <= 1) {
+    const v = a[0] ?? 0
+    return [v, v, v, v]
+  }
+  if (a.length === 2) return [a[0]!, a[1]!, a[0]!, a[1]!]
+  if (a.length === 3) return [a[0]!, a[1]!, a[2]!, a[1]!]
+  return [a[0]!, a[1]!, a[2]!, a[3]!]
 }
 
 /** Parse and sanitize persisted/imported JSON; handles legacy shapes. Null if invalid. */
@@ -121,9 +161,25 @@ function parseState(raw: string | null): PlanState | null {
         } else {
           seats = []
         }
-        seats = seats.slice(0, t.capacity)
-        while (seats.length < t.capacity) seats.push(null)
-        return { id: t.id, name: t.name, capacity: t.capacity, seats }
+
+        // Optional shape; square/rectangle define capacity by their side counts.
+        let shape: TableShape | undefined
+        const rawShape = t.shape
+        if (rawShape?.kind === 'round') {
+          shape = { kind: 'round' }
+        } else if (rawShape?.kind === 'square' || rawShape?.kind === 'rectangle') {
+          const sides = Array.isArray(rawShape.sides)
+            ? rawShape.sides.map((n) => Math.max(0, Math.floor(Number(n) || 0)))
+            : []
+          if (sides.length === 4 && sides.some((n) => n > 0)) {
+            shape = { kind: rawShape.kind, sides: sides as [number, number, number, number] }
+          }
+        }
+
+        const capacity = shape?.sides ? shape.sides.reduce((a, b) => a + b, 0) : t.capacity
+        seats = seats.slice(0, capacity)
+        while (seats.length < capacity) seats.push(null)
+        return { id: t.id, name: t.name, capacity, seats, shape }
       })
 
       const kinds: RuleKind[] = ['couple', 'together', 'apart']
@@ -481,7 +537,39 @@ export const usePlannerStore = defineStore('planner', () => {
           ? [...table.seats, ...Array.from({ length: capacity - table.capacity }, () => null)]
           : table.seats.slice(0, capacity)
       table.capacity = capacity
+      // A square table's sides are derived from its capacity — keep them in step.
+      if (table.shape?.kind === 'square') table.shape = { kind: 'square', sides: distributeSquare(capacity) }
     }
+  }
+
+  /**
+   * Set a table's physical shape. Square/rectangle capacities follow their side
+   * counts (a square splits its current capacity evenly; a rectangle uses the
+   * given sides). Returns false if the new size would unseat an already-seated
+   * guest — nobody is ever dropped from a seat.
+   */
+  function setTableShape(id: string, kind: TableShapeKind, sides?: number[]): boolean {
+    const table = tables.value.find((t) => t.id === id)
+    if (!table) return false
+    if (kind === 'round') {
+      table.shape = { kind: 'round' }
+      return true
+    }
+    const resolved =
+      kind === 'rectangle'
+        ? normalizeSides(sides ?? table.shape?.sides ?? distributeSquare(table.capacity))
+        : distributeSquare(sides ? sides.reduce((a, b) => a + b, 0) : table.capacity)
+    const total = resolved.reduce((a, b) => a + b, 0)
+    if (total < 1) return false
+    const lastOccupied = table.seats.reduce((last, sid, i) => (sid ? i : last), -1)
+    if (total < lastOccupied + 1) return false // would unseat someone
+    table.seats =
+      total > table.capacity
+        ? [...table.seats, ...Array.from({ length: total - table.capacity }, () => null)]
+        : table.seats.slice(0, total)
+    table.capacity = total
+    table.shape = { kind, sides: resolved }
+    return true
   }
 
   function removeTable(id: string): void {
@@ -579,6 +667,7 @@ export const usePlannerStore = defineStore('planner', () => {
     addTable,
     addTables,
     updateTable,
+    setTableShape,
     removeTable,
     assignGuest,
     unseatGuest,

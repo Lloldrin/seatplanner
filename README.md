@@ -21,8 +21,16 @@ else as a link.
    seats (empty seats are hollow dots). Drag a guest onto an empty seat to
    move them, onto another guest to swap. Nobody ever shifts on their own.
 4. **Tables** — the same seats as cards: click a guest, then a seat to place
-   them. Capacity meters, unseated panel, and rule-violation warnings.
-5. **Print** — a clean per-table seat list to hand to the venue.
+   them. Capacity meters, unseated panel, and rule-violation warnings. Give each
+   table a **shape** here too — round, square, or a rectangle with a chosen seat
+   count per side (e.g. `6, 2` = 6 on the long sides and 2 on the short ones, or
+   `6, 0, 6, 2` to block one short side entirely).
+5. **Seat Map** — each table drawn to scale in its real shape, with seats where
+   they'd actually be. Click a guest, then a seat to sit them in that exact
+   spot; click a seated guest to pick them up, or click their own seat again to
+   unseat.
+6. **Print** — a clean plan for the venue, as either per-table seat **lists** or
+   a to-scale **seat map** of every table in its real shape (toggle at the top).
 
 Everything is undoable (`Ctrl+Z` / `Ctrl+Shift+Z`), rotating backups are kept
 automatically (see **Backups** in the header), and both circle views support

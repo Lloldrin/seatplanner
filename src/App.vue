@@ -10,6 +10,7 @@ const tabs = [
   { to: '/arrange', label: 'Arrange' },
   { to: '/circle', label: 'Circle' },
   { to: '/tables', label: 'Tables' },
+  { to: '/seatmap', label: 'Seat Map' },
   { to: '/print', label: 'Print' },
 ]
 

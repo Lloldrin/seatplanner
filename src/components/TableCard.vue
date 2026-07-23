@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { Table } from '../stores/planner'
 import { usePlannerStore } from '../stores/planner'
 import GuestChip from './GuestChip.vue'
+import TableShapeControl from './TableShapeControl.vue'
 
 const props = defineProps<{ table: Table; selectedGuestId: string | null }>()
 const emit = defineEmits<{ seatClick: [seatIndex: number] }>()
@@ -34,7 +35,10 @@ function confirmRemove() {
         class="w-0 min-w-0 flex-1 rounded px-1 py-0.5 text-sm font-semibold focus:bg-stone-50 focus:outline-none"
         @change="store.updateTable(table.id, { name: ($event.target as HTMLInputElement).value })"
       />
-      <label class="flex items-center gap-1 text-xs text-stone-400">
+      <label
+        v-if="table.shape?.kind !== 'rectangle'"
+        class="flex items-center gap-1 text-xs text-stone-400"
+      >
         seats
         <input
           :value="table.capacity"
@@ -44,6 +48,7 @@ function confirmRemove() {
           @change="store.updateTable(table.id, { capacity: Number(($event.target as HTMLInputElement).value) })"
         />
       </label>
+      <span v-else class="text-xs text-stone-400">{{ table.capacity }} seats</span>
       <button
         class="rounded px-1 text-stone-300 transition hover:text-red-500"
         title="Remove table"
@@ -52,6 +57,8 @@ function confirmRemove() {
         ✕
       </button>
     </div>
+
+    <TableShapeControl :table="table" class="mt-2" />
 
     <div class="mt-2 flex items-center gap-2">
       <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-stone-100">
