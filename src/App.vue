@@ -43,7 +43,7 @@ async function importPlan(event: Event) {
 }
 
 async function sharePlan() {
-  const url = `${location.origin}/#plan=${compressToEncodedURIComponent(store.exportState())}`
+  const url = `${location.origin}${import.meta.env.BASE_URL}#plan=${compressToEncodedURIComponent(store.exportState())}`
   try {
     await navigator.clipboard.writeText(url)
     shareCopied.value = true
