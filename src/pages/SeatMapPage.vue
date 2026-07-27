@@ -34,6 +34,76 @@ function onSeatClick(table: Table, seatIndex: number) {
     toggleSelect(occupantId)
   }
 }
+
+// --- Pointer drag, with a click fallback when the pointer barely moves --------
+
+const ghost = ref<{ name: string; color?: string; x: number; y: number } | null>(null)
+let pending: { x: number; y: number; guestId: string; onClick: () => void; moved: boolean } | null =
+  null
+
+function beginDrag(guestId: string, onClick: () => void, event: PointerEvent) {
+  if (event.button !== 0) return
+  pending = { x: event.clientX, y: event.clientY, guestId, onClick, moved: false }
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', onPointerUp, { once: true })
+}
+
+function onPointerMove(event: PointerEvent) {
+  if (!pending) return
+  if (!pending.moved && Math.hypot(event.clientX - pending.x, event.clientY - pending.y) < 5) return
+  pending.moved = true
+  const guest = store.guests.find((g) => g.id === pending!.guestId)
+  ghost.value = {
+    name: guest?.name ?? '',
+    color: store.groupColor(guest?.group),
+    x: event.clientX,
+    y: event.clientY,
+  }
+}
+
+function onPointerUp(event: PointerEvent) {
+  window.removeEventListener('pointermove', onPointerMove)
+  const drag = pending
+  pending = null
+  ghost.value = null
+  if (!drag) return
+  if (!drag.moved) {
+    drag.onClick() // treated as a plain click
+    return
+  }
+  // Dropped after moving: seat under the pointer wins; the tray unseats.
+  const target = document.elementFromPoint(event.clientX, event.clientY)
+  const seat = target?.closest('[data-seat]') as HTMLElement | null
+  if (seat?.dataset.tableId) {
+    store.assignGuest(drag.guestId, seat.dataset.tableId, Number(seat.dataset.seatIndex))
+  } else if (target?.closest('[data-unseated-zone]')) {
+    store.unseatGuest(drag.guestId)
+  }
+  selectedGuestId.value = null
+}
+
+/** Grid delegation: each seat carries its identity in data-* attributes. */
+function onSeatPointerDown(event: PointerEvent) {
+  const seat = (event.target as Element).closest('[data-seat]') as HTMLElement | null
+  if (!seat?.dataset.tableId) return
+  const table = store.tables.find((t) => t.id === seat.dataset.tableId)
+  if (!table) return
+  const seatIndex = Number(seat.dataset.seatIndex)
+  const guestId = table.seats[seatIndex] ?? selectedGuestId.value
+  if (!guestId) return // empty seat with nobody held: nothing to click or drag
+  beginDrag(guestId, () => onSeatClick(table, seatIndex), event)
+}
+
+/** Keyboard: Enter/Space on a focused seat behaves like a click. */
+function onSeatKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  const seat = (event.target as Element).closest('[data-seat]') as HTMLElement | null
+  if (!seat?.dataset.tableId) return
+  const table = store.tables.find((t) => t.id === seat.dataset.tableId)
+  if (!table) return
+  event.preventDefault()
+  onSeatClick(table, Number(seat.dataset.seatIndex))
+}
 </script>
 
 <template>
@@ -65,24 +135,31 @@ function onSeatClick(table: Table, seatIndex: number) {
             <p v-else-if="!store.unassignedGuests.length" class="mt-3 text-sm text-emerald-600">
               Everyone has a seat 🎉
             </p>
-            <div class="mt-2 flex min-h-24 flex-wrap content-start gap-1.5">
+            <div
+              data-unseated-zone
+              class="mt-2 flex min-h-24 flex-wrap content-start gap-1.5 rounded-lg"
+            >
               <GuestChip
                 v-for="guest in unassignedList"
                 :key="guest.id"
                 :guest="guest"
-                class="cursor-pointer"
+                class="cursor-pointer touch-none"
                 :class="{ '!border-emerald-500 ring-1 ring-emerald-300': selectedGuestId === guest.id }"
-                @click="toggleSelect(guest.id)"
+                @pointerdown="beginDrag(guest.id, () => toggleSelect(guest.id), $event)"
               />
             </div>
             <p class="mt-2 text-xs text-stone-400">
-              Click a guest, then a seat to place them. Click an occupied seat to pick that guest up;
-              click their own seat again to unseat. Set each table's shape in its header.
+              Drag a guest onto a seat — or click a guest, then a seat. Drag a seated guest to another
+              seat to move or swap them, or back here to unseat. Set each table's shape in its header.
             </p>
           </div>
         </aside>
 
-        <div class="grid flex-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        <div
+          class="grid flex-1 gap-4 md:grid-cols-2 2xl:grid-cols-3"
+          @pointerdown="onSeatPointerDown"
+          @keydown="onSeatKeydown"
+        >
           <div
             v-for="table in store.tables"
             :key="table.id"
@@ -108,8 +185,7 @@ function onSeatClick(table: Table, seatIndex: number) {
               :table="table"
               :selected-guest-id="selectedGuestId"
               interactive
-              class="mt-2 h-64 w-full"
-              @seat-click="onSeatClick(table, $event)"
+              class="mt-2 h-64 w-full sm:h-72"
             />
           </div>
         </div>
@@ -126,5 +202,19 @@ function onSeatClick(table: Table, seatIndex: number) {
         </span>
       </div>
     </template>
+
+    <!-- Floating chip that follows the pointer while dragging. -->
+    <div
+      v-if="ghost"
+      class="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-full border border-stone-300 bg-white px-2.5 py-1 text-sm shadow-lg"
+      :style="{ left: `${ghost.x}px`, top: `${ghost.y}px` }"
+    >
+      <span
+        v-if="ghost.color"
+        class="mr-1 inline-block size-2 rounded-full align-middle"
+        :style="{ backgroundColor: ghost.color }"
+      />
+      {{ ghost.name }}
+    </div>
   </div>
 </template>

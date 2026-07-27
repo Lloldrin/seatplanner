@@ -79,6 +79,20 @@ function print() {
       </section>
     </div>
 
+    <div
+      v-if="layout === 'map' && store.groups.length"
+      class="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-500"
+    >
+      <span
+        v-for="group in store.groups"
+        :key="group"
+        class="inline-flex items-center gap-1.5"
+      >
+        <span class="size-2.5 rounded-full" :style="{ backgroundColor: store.groupColor(group) }" />
+        {{ group }}
+      </span>
+    </div>
+
     <section v-if="store.unassignedGuests.length" class="mt-6 rounded-lg border border-stone-300 p-4">
       <h2 class="font-semibold">
         Unseated <span class="text-sm font-normal text-stone-400">· {{ store.unassignedGuests.length }}</span>

@@ -403,7 +403,16 @@ export const usePlannerStore = defineStore('planner', () => {
     rules.value = rules.value.filter((r) => r.id !== id)
   }
 
-  /** Rules currently broken by the seating (both guests seated, wrong tables). */
+  /** Two seat indices are neighbors if consecutive around the table's perimeter. */
+  function seatsAdjacent(table: Table, idA: string, idB: string): boolean {
+    const ia = table.seats.indexOf(idA)
+    const ib = table.seats.indexOf(idB)
+    if (ia === -1 || ib === -1) return false
+    const gap = Math.abs(ia - ib)
+    return gap === 1 || gap === table.capacity - 1 // adjacent, or wrapping across the seam
+  }
+
+  /** Rules currently broken by the seating (both guests seated, wrong tables/seats). */
   const violations = computed<Violation[]>(() => {
     const out: Violation[] = []
     for (const rule of rules.value) {
@@ -413,11 +422,16 @@ export const usePlannerStore = defineStore('planner', () => {
       const tableA = tableByGuestId.value.get(rule.a)
       const tableB = tableByGuestId.value.get(rule.b)
       if (!tableA || !tableB) continue
-      if (rule.kind === 'apart' && tableA.id === tableB.id) {
-        out.push({ rule, a, b, message: `${a.name} and ${b.name} should not share a table (${tableA.name})` })
-      } else if (rule.kind !== 'apart' && tableA.id !== tableB.id) {
+      if (rule.kind === 'apart') {
+        if (tableA.id === tableB.id) {
+          out.push({ rule, a, b, message: `${a.name} and ${b.name} should not share a table (${tableA.name})` })
+        }
+      } else if (tableA.id !== tableB.id) {
         const label = rule.kind === 'couple' ? 'are a couple' : 'should sit together'
         out.push({ rule, a, b, message: `${a.name} and ${b.name} ${label} but sit at ${tableA.name} and ${tableB.name}` })
+      } else if (rule.kind === 'couple' && !seatsAdjacent(tableA, rule.a, rule.b)) {
+        // Same table but not side by side — a couple should share neighboring seats.
+        out.push({ rule, a, b, message: `${a.name} and ${b.name} are a couple but don't sit next to each other at ${tableA.name}` })
       }
     }
     return out

@@ -9,13 +9,15 @@ const props = withDefaults(
     table: Table
     /** Currently held guest (highlighted); enables the interactive affordances. */
     selectedGuestId?: string | null
-    /** When true, seats are clickable and rule violations are ringed. */
+    /**
+     * When true, seats carry drag/keyboard hooks and rule violations are ringed.
+     * Interaction itself is handled by the parent via event delegation on the
+     * seat `data-*` attributes, so this component stays presentational.
+     */
     interactive?: boolean
   }>(),
   { selectedGuestId: null, interactive: false },
 )
-
-const emit = defineEmits<{ seatClick: [seatIndex: number] }>()
 
 const store = usePlannerStore()
 
@@ -25,6 +27,17 @@ const rect = computed(() => (layout.value.outline.kind === 'rect' ? layout.value
 
 function name(guestId: string): string {
   return store.guests.find((g) => g.id === guestId)?.name ?? ''
+}
+
+/** Trim only very long names so side labels don't run off the card; full name lives in <title>. */
+function shortName(guestId: string): string {
+  const full = name(guestId)
+  return full.length > 20 ? `${full.slice(0, 19)}…` : full
+}
+
+function seatLabel(table: Table, index: number): string {
+  const id = table.seats[index]
+  return id ? `Seat ${index + 1}: ${name(id)}` : `Seat ${index + 1}: empty`
 }
 
 function seatFill(guestId: string): string {
@@ -74,9 +87,25 @@ function labelAnchor(side: string, flipped: boolean): string {
       v-for="seat in layout.seats"
       :key="seat.index"
       :transform="`translate(${seat.x} ${seat.y})`"
-      :class="interactive ? 'cursor-pointer' : ''"
-      @click="interactive && emit('seatClick', seat.index)"
+      :class="interactive ? 'cursor-pointer focus:outline-none' : ''"
+      :data-seat="interactive ? '' : undefined"
+      :data-table-id="interactive ? table.id : undefined"
+      :data-seat-index="interactive ? seat.index : undefined"
+      :tabindex="interactive ? 0 : undefined"
+      :role="interactive ? 'button' : undefined"
+      :aria-label="interactive ? seatLabel(table, seat.index) : undefined"
     >
+      <title>{{ seatLabel(table, seat.index) }}</title>
+
+      <!-- enlarged, always-hittable target for clicking/dropping and focus ring -->
+      <circle
+        v-if="interactive"
+        r="15"
+        fill="none"
+        pointer-events="all"
+        class="focus-visible:stroke-emerald-500"
+      />
+
       <template v-if="table.seats[seat.index]">
         <circle
           v-if="selectedGuestId === table.seats[seat.index]"
@@ -99,7 +128,7 @@ function labelAnchor(side: string, flipped: boolean): string {
           font-size="11"
           fill="#44403c"
         >
-          {{ name(table.seats[seat.index]!) }}
+          {{ shortName(table.seats[seat.index]!) }}
         </text>
       </template>
       <template v-else>

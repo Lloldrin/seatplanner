@@ -55,6 +55,27 @@ pnpm preview    # serve the production build locally
 The production build in `dist/` is fully static — it can be hosted on any
 static file host (GitHub Pages, Netlify, …).
 
+## Deploying to GitHub Pages
+
+Pushing to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml),
+which builds and publishes `dist/` to GitHub Pages. It's a one-time setup:
+in the repo, go to **Settings → Pages → Build and deployment → Source** and
+choose **GitHub Actions** (not "Deploy from a branch" — that would serve the
+raw source and fail).
+
+Because it's a *project* site, the app lives under a sub-path
+(`https://<user>.github.io/seatplanner/`), so Vite's `base` is set to
+`/seatplanner/` in [`vite.config.ts`](vite.config.ts). If you rename the repo,
+change that to match. For a **user site** (`<user>.github.io`) or a custom
+domain, build with the base at the root instead:
+
+```sh
+BASE_PATH=/ pnpm build
+```
+
+The workflow also copies `index.html` to `404.html` so deep links and page
+refreshes (e.g. `/seatplanner/circle`) still boot the single-page app.
+
 ## Tech
 
 - [Vue 3](https://vuejs.org) (`<script setup>` + TypeScript) with
