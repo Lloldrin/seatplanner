@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import type { Table } from '../stores/planner'
 import { usePlannerStore } from '../stores/planner'
-import { tableLayout } from '../tableGeometry'
+import { tableLayout, type SeatPos } from '../tableGeometry'
 
 const props = withDefaults(
   defineProps<{
@@ -21,7 +21,14 @@ const props = withDefaults(
 
 const store = usePlannerStore()
 
-const layout = computed(() => tableLayout(props.table))
+/** Rough rendered width (px) of the longest printed name, so the viewBox leaves room for it. */
+const labelWidth = computed(() => {
+  if (props.interactive) return 0 // interactive seats show initials, not side labels
+  const longest = Math.max(0, ...props.table.seats.map((id) => (id ? shortName(id).length : 0)))
+  return longest * 6.2 // ~average glyph width at the 11px label size
+})
+
+const layout = computed(() => tableLayout(props.table, labelWidth.value))
 const round = computed(() => (layout.value.outline.kind === 'round' ? layout.value.outline : null))
 const rect = computed(() => (layout.value.outline.kind === 'rect' ? layout.value.outline : null))
 
@@ -78,24 +85,26 @@ function seatFill(guestId: string): string {
   return store.groupColor(guest?.group) ?? 'var(--color-neutral-400)'
 }
 
-function labelDx(side: string, flipped: boolean): number {
-  if (side === 'left') return -13
-  if (side === 'right') return 13
-  if (side === 'round') return flipped ? -13 : 13
-  return 0 // top / bottom centred
-}
-
-function labelDy(side: string): number {
-  if (side === 'top') return -15
-  if (side === 'bottom') return 21
-  return 0
-}
-
-function labelAnchor(side: string, flipped: boolean): string {
-  if (side === 'left') return 'end'
-  if (side === 'right') return 'start'
-  if (side === 'round') return flipped ? 'end' : 'start'
-  return 'middle'
+/**
+ * Printed name placement. Top/bottom names run on a 45° diagonal (top ones
+ * rising away from the seat, bottom ones ending at it) so neighbours don't
+ * collide; round-table names point outward along the radius.
+ */
+function labelProps(seat: SeatPos): { x: number; transform?: string; 'text-anchor': string } {
+  switch (seat.side) {
+    case 'left':
+      return { x: -13, 'text-anchor': 'end' }
+    case 'right':
+      return { x: 13, 'text-anchor': 'start' }
+    case 'top':
+      return { x: 12, transform: 'rotate(-45)', 'text-anchor': 'start' }
+    case 'bottom':
+      return { x: -12, transform: 'rotate(-45)', 'text-anchor': 'end' }
+    case 'round': {
+      const deg = (seat.angle * 180) / Math.PI + (seat.flipped ? 180 : 0)
+      return { x: seat.flipped ? -13 : 13, transform: `rotate(${deg})`, 'text-anchor': seat.flipped ? 'end' : 'start' }
+    }
+  }
 }
 </script>
 
@@ -195,9 +204,7 @@ function labelAnchor(side: string, flipped: boolean): string {
         </text>
         <text
           v-else
-          :dx="labelDx(seat.side, seat.flipped)"
-          :dy="labelDy(seat.side)"
-          :text-anchor="labelAnchor(seat.side, seat.flipped)"
+          v-bind="labelProps(seat)"
           dominant-baseline="central"
           class="seat-label"
         >

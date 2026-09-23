@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { usePlannerStore } from '../stores/planner'
 import TableSeatMap from '../components/TableSeatMap.vue'
+import { isLongTable } from '../tableGeometry'
 
 const store = usePlannerStore()
 
@@ -53,6 +54,7 @@ function print() {
         v-for="table in store.tables"
         :key="table.id"
         class="break-inside-avoid"
+        :class="{ 'col-span-full': layout === 'map' && isLongTable(table) }"
       >
         <h2 class="card-title mb-0">
           {{ table.name }}
@@ -60,7 +62,12 @@ function print() {
             · {{ table.seats.filter(Boolean).length }}/{{ table.capacity }}
           </span>
         </h2>
-        <TableSeatMap v-if="layout === 'map'" :table="table" class="mt-2 h-64 w-full" />
+        <TableSeatMap
+          v-if="layout === 'map'"
+          :table="table"
+          class="mt-2 w-full"
+          :class="isLongTable(table) ? 'h-auto' : 'h-64'"
+        />
         <ol v-else class="mt-2 list-none p-0 text-[13px] leading-6">
           <li v-for="(guest, index) in store.seatOccupants(table.id)" :key="index" class="flex gap-2">
             <span class="tnum text-muted w-6 shrink-0 text-right">{{ index + 1 }}.</span>

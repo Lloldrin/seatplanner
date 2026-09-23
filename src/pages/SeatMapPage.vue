@@ -6,6 +6,7 @@ import GuestChip from '../components/GuestChip.vue'
 import RuleWarnings from '../components/RuleWarnings.vue'
 import TableSeatMap from '../components/TableSeatMap.vue'
 import TableShapeControl from '../components/TableShapeControl.vue'
+import { isLongTable } from '../tableGeometry'
 
 const store = usePlannerStore()
 
@@ -17,11 +18,6 @@ const unassignedList = computed(() =>
     g.name.toLowerCase().includes(search.value.trim().toLowerCase()),
   ),
 )
-
-/** Long tables (more than 10 seats on any side) get a full-width card so seats stay legible. */
-function isLongTable(table: Table): boolean {
-  return table.shape?.kind !== 'round' && (table.shape?.sides ?? []).some((n) => n > 10)
-}
 
 function toggleSelect(guestId: string) {
   selectedGuestId.value = selectedGuestId.value === guestId ? null : guestId

@@ -32,18 +32,35 @@ const PAD_X = 96 // viewBox room for side name labels
 const PAD_Y = 44
 const TAU = Math.PI * 2
 
-function box(seats: SeatPos[]): string {
+/**
+ * viewBox framing the seats plus room for printed name labels. `labelWidth` is
+ * the longest label's width; 0 keeps the default padding (interactive maps).
+ */
+function box(seats: SeatPos[], labelWidth: number, round: boolean): string {
+  const reach = labelWidth + 16 // seat-centre offset plus a little breathing room
+  // Round labels point outward in every direction; straight tables put
+  // horizontal labels at the sides and 45° ones (sin 45° ≈ 0.71 tall) top and bottom.
+  const padX = Math.max(PAD_X, reach)
+  const padY = Math.max(PAD_Y, round ? reach : reach * 0.71)
   const xs = seats.map((s) => s.x)
   const ys = seats.map((s) => s.y)
   const minX = Math.min(-40, ...xs)
   const maxX = Math.max(40, ...xs)
   const minY = Math.min(-40, ...ys)
   const maxY = Math.max(40, ...ys)
-  return `${minX - PAD_X} ${minY - PAD_Y} ${maxX - minX + PAD_X * 2} ${maxY - minY + PAD_Y * 2}`
+  return `${minX - padX} ${minY - padY} ${maxX - minX + padX * 2} ${maxY - minY + padY * 2}`
 }
 
-/** Compute drawn seat positions and the table outline for `table`. */
-export function tableLayout(table: Table): TableLayout {
+/** More than 10 seats on any straight side: drawn full-width so seats stay legible. */
+export function isLongTable(table: Table): boolean {
+  return table.shape?.kind !== 'round' && (table.shape?.sides ?? []).some((n) => n > 10)
+}
+
+/**
+ * Compute drawn seat positions and the table outline for `table`.
+ * `labelWidth` (px) reserves viewBox room for printed name labels.
+ */
+export function tableLayout(table: Table, labelWidth = 0): TableLayout {
   const shape = table.shape
 
   // Round (default): seats spread evenly around a ring sized to fit them.
@@ -62,7 +79,7 @@ export function tableLayout(table: Table): TableLayout {
         flipped: Math.cos(angle) < -0.001,
       })
     }
-    return { seats, outline: { kind: 'round', r: Math.max(30, r - GAP) }, viewBox: box(seats) }
+    return { seats, outline: { kind: 'round', r: Math.max(30, r - GAP) }, viewBox: box(seats, labelWidth, true) }
   }
 
   // Straight-edged: walk the perimeter clockwise — top, right, bottom, left.
@@ -87,5 +104,5 @@ export function tableLayout(table: Table): TableLayout {
   for (let i = 0; i < left; i++)
     seats.push({ index: idx++, x: -halfW - GAP, y: halfH - (h * (i + 0.5)) / left, side: 'left', angle: 0, flipped: false })
 
-  return { seats, outline: { kind: 'rect', x: -halfW, y: -halfH, w, h }, viewBox: box(seats) }
+  return { seats, outline: { kind: 'rect', x: -halfW, y: -halfH, w, h }, viewBox: box(seats, labelWidth, false) }
 }
