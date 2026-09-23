@@ -15,17 +15,25 @@ const props = withDefaults(
      * seat `data-*` attributes, so this component stays presentational.
      */
     interactive?: boolean
+    /** Interactive only: show angled full-name labels beside seats instead of initials. */
+    names?: boolean
   }>(),
-  { selectedGuestId: null, interactive: false },
+  { selectedGuestId: null, interactive: false, names: false },
 )
 
 const store = usePlannerStore()
 
+/** Print always labels seats with names; interactive maps only when `names` is on. */
+const showLabels = computed(() => !props.interactive || props.names)
+
+/** Seat-centre to label start: clears the larger interactive dot and its held/violation ring. */
+const labelGap = computed(() => (props.interactive ? 16 : 12))
+
 /** Rough rendered width (px) of the longest printed name, so the viewBox leaves room for it. */
 const labelWidth = computed(() => {
-  if (props.interactive) return 0 // interactive seats show initials, not side labels
+  if (!showLabels.value) return 0
   const longest = Math.max(0, ...props.table.seats.map((id) => (id ? shortName(id).length : 0)))
-  return longest * 6.2 // ~average glyph width at the 11px label size
+  return longest * 6.2 + labelGap.value - 12 // ~average glyph width at the 11px label size
 })
 
 const layout = computed(() => tableLayout(props.table, labelWidth.value))
@@ -36,10 +44,10 @@ function name(guestId: string): string {
   return store.guests.find((g) => g.id === guestId)?.name ?? ''
 }
 
-/** Trim only very long names so side labels don't run off the card; full name lives in <title>. */
+/** Names over 15 characters are cut with an ellipsis; the full name lives in <title>. */
 function shortName(guestId: string): string {
   const full = name(guestId)
-  return full.length > 20 ? `${full.slice(0, 19)}…` : full
+  return full.length > 15 ? `${full.slice(0, 15).trimEnd()}…` : full
 }
 
 /** Interactive seats carry initials only; the full name shows in the table middle. */
@@ -86,23 +94,24 @@ function seatFill(guestId: string): string {
 }
 
 /**
- * Printed name placement. Top/bottom names run on a 45° diagonal (top ones
+ * Side-label name placement. Top/bottom names run on a 45° diagonal (top ones
  * rising away from the seat, bottom ones ending at it) so neighbours don't
  * collide; round-table names point outward along the radius.
  */
 function labelProps(seat: SeatPos): { x: number; transform?: string; 'text-anchor': string } {
+  const gap = labelGap.value
   switch (seat.side) {
     case 'left':
-      return { x: -13, 'text-anchor': 'end' }
+      return { x: -gap, 'text-anchor': 'end' }
     case 'right':
-      return { x: 13, 'text-anchor': 'start' }
+      return { x: gap, 'text-anchor': 'start' }
     case 'top':
-      return { x: 12, transform: 'rotate(-45)', 'text-anchor': 'start' }
+      return { x: gap, transform: 'rotate(-45)', 'text-anchor': 'start' }
     case 'bottom':
-      return { x: -12, transform: 'rotate(-45)', 'text-anchor': 'end' }
+      return { x: -gap, transform: 'rotate(-45)', 'text-anchor': 'end' }
     case 'round': {
       const deg = (seat.angle * 180) / Math.PI + (seat.flipped ? 180 : 0)
-      return { x: seat.flipped ? -13 : 13, transform: `rotate(${deg})`, 'text-anchor': seat.flipped ? 'end' : 'start' }
+      return { x: seat.flipped ? -gap : gap, transform: `rotate(${deg})`, 'text-anchor': seat.flipped ? 'end' : 'start' }
     }
   }
 }
@@ -192,10 +201,10 @@ function labelProps(seat: SeatPos): { x: number; transform?: string; 'text-ancho
           class="seat-ring"
           :style="{ '--seat-color': seatFill(table.seats[seat.index]!) }"
         />
-        <!-- Interactive: initials in the dot, full name revealed in the middle.
-             Print can't hover, so it keeps the full side label. -->
+        <!-- Initials mode: initials in the dot, full name revealed in the middle.
+             Names mode (and print, which can't hover) labels each seat directly. -->
         <text
-          v-if="interactive"
+          v-if="!showLabels"
           text-anchor="middle"
           dominant-baseline="central"
           class="seat-initials"

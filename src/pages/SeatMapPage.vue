@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { Table } from '../stores/planner'
 import { usePlannerStore } from '../stores/planner'
 import GuestChip from '../components/GuestChip.vue'
@@ -11,6 +11,24 @@ import { isLongTable } from '../tableGeometry'
 const store = usePlannerStore()
 
 const search = ref('')
+
+/** Seat labels: initials in the dot, or angled full names beside it. Remembered per browser. */
+const LABEL_MODE_KEY = 'seatplanner:seatLabels'
+const labelMode = ref<'initials' | 'names'>(readLabelMode())
+function readLabelMode(): 'initials' | 'names' {
+  try {
+    return localStorage.getItem(LABEL_MODE_KEY) === 'names' ? 'names' : 'initials'
+  } catch {
+    return 'initials'
+  }
+}
+watch(labelMode, (mode) => {
+  try {
+    localStorage.setItem(LABEL_MODE_KEY, mode)
+  } catch {
+    // storage unavailable (private window etc.): the toggle still works for this visit
+  }
+})
 const selectedGuestId = ref<string | null>(null)
 
 const unassignedList = computed(() =>
@@ -156,43 +174,59 @@ function onSeatKeydown(event: KeyboardEvent) {
           </div>
         </aside>
 
-        <div
-          class="grid flex-1 gap-4 md:grid-cols-2 2xl:grid-cols-3"
-          @pointerdown="onSeatPointerDown"
-          @keydown="onSeatKeydown"
-        >
-          <div
-            v-for="table in store.tables"
-            :key="table.id"
-            class="card gap-0"
-            :class="{ 'is-held': selectedGuestId, 'col-span-full': isLongTable(table) }"
-          >
-            <div class="flex items-center gap-2">
-              <input
-                :value="table.name"
-                class="card-title w-0 min-w-0 flex-1 border-0 bg-transparent px-1 py-0.5"
-                @change="store.updateTable(table.id, { name: ($event.target as HTMLInputElement).value })"
-              />
-              <span
-                class="tnum text-xs"
-                :class="
-                  table.seats.filter(Boolean).length >= table.capacity
-                    ? 'text-[var(--color-accent-700)]'
-                    : 'text-muted'
-                "
-              >
-                {{ table.seats.filter(Boolean).length }}/{{ table.capacity }}
-              </span>
+        <div class="flex min-w-0 flex-1 flex-col gap-3">
+          <div class="flex justify-end">
+            <div class="seg" role="radiogroup" aria-label="Seat labels">
+              <label class="seg-opt">
+                <input v-model="labelMode" type="radio" value="initials" />
+                Initials
+              </label>
+              <label class="seg-opt">
+                <input v-model="labelMode" type="radio" value="names" />
+                Names
+              </label>
             </div>
-            <TableShapeControl :table="table" class="mt-1.5" />
+          </div>
 
-            <TableSeatMap
-              :table="table"
-              :selected-guest-id="selectedGuestId"
-              interactive
-              class="mt-2 w-full"
-              :class="isLongTable(table) ? 'h-auto max-h-[80vh]' : 'h-64 sm:h-72'"
-            />
+          <div
+            class="grid gap-4 md:grid-cols-2 2xl:grid-cols-3"
+            @pointerdown="onSeatPointerDown"
+            @keydown="onSeatKeydown"
+          >
+            <div
+              v-for="table in store.tables"
+              :key="table.id"
+              class="card gap-0"
+              :class="{ 'is-held': selectedGuestId, 'col-span-full': isLongTable(table) }"
+            >
+              <div class="flex items-center gap-2">
+                <input
+                  :value="table.name"
+                  class="card-title w-0 min-w-0 flex-1 border-0 bg-transparent px-1 py-0.5"
+                  @change="store.updateTable(table.id, { name: ($event.target as HTMLInputElement).value })"
+                />
+                <span
+                  class="tnum text-xs"
+                  :class="
+                    table.seats.filter(Boolean).length >= table.capacity
+                      ? 'text-[var(--color-accent-700)]'
+                      : 'text-muted'
+                  "
+                >
+                  {{ table.seats.filter(Boolean).length }}/{{ table.capacity }}
+                </span>
+              </div>
+              <TableShapeControl :table="table" class="mt-1.5" />
+
+              <TableSeatMap
+                :table="table"
+                :selected-guest-id="selectedGuestId"
+                interactive
+                :names="labelMode === 'names'"
+                class="mt-2 w-full"
+                :class="isLongTable(table) ? 'h-auto max-h-[80vh]' : 'h-64 sm:h-72'"
+              />
+            </div>
           </div>
         </div>
       </div>
