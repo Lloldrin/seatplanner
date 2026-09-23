@@ -18,6 +18,11 @@ const unassignedList = computed(() =>
   ),
 )
 
+/** Long tables (more than 10 seats on any side) get a full-width card so seats stay legible. */
+function isLongTable(table: Table): boolean {
+  return table.shape?.kind !== 'round' && (table.shape?.sides ?? []).some((n) => n > 10)
+}
+
 function toggleSelect(guestId: string) {
   selectedGuestId.value = selectedGuestId.value === guestId ? null : guestId
 }
@@ -164,7 +169,7 @@ function onSeatKeydown(event: KeyboardEvent) {
             v-for="table in store.tables"
             :key="table.id"
             class="card gap-0"
-            :class="{ 'is-held': selectedGuestId }"
+            :class="{ 'is-held': selectedGuestId, 'col-span-full': isLongTable(table) }"
           >
             <div class="flex items-center gap-2">
               <input
@@ -189,7 +194,8 @@ function onSeatKeydown(event: KeyboardEvent) {
               :table="table"
               :selected-guest-id="selectedGuestId"
               interactive
-              class="mt-2 h-64 w-full sm:h-72"
+              class="mt-2 w-full"
+              :class="isLongTable(table) ? 'h-auto max-h-[80vh]' : 'h-64 sm:h-72'"
             />
           </div>
         </div>
