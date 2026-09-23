@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string'
 import { onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { decodeShareHash, encodeShareHash } from './shareLink'
 import { usePlannerStore } from './stores/planner'
 
 const store = usePlannerStore()
+const router = useRouter()
 
 const tabs = [
   { to: '/', label: 'Guests' },
@@ -43,7 +45,8 @@ async function importPlan(event: Event) {
 }
 
 async function sharePlan() {
-  const url = `${location.origin}${import.meta.env.BASE_URL}#plan=${compressToEncodedURIComponent(store.exportState())}`
+  const hash = await encodeShareHash({ guests: store.guests, tables: store.tables, rules: store.rules })
+  const url = `${location.origin}${import.meta.env.BASE_URL}${hash}`
   try {
     await navigator.clipboard.writeText(url)
     shareCopied.value = true
@@ -73,21 +76,30 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
-  const match = location.hash.match(/^#plan=(.+)$/)
-  if (match?.[1]) {
-    history.replaceState(null, '', location.pathname)
-    const json = decompressFromEncodedURIComponent(match[1])
-    const shared = json ? JSON.parse(json) : null
-    if (
-      json &&
-      confirm(
-        `Load the shared plan (${shared?.guests?.length ?? '?'} guests)? This replaces your current plan — a backup of it is kept under Backups.`,
-      )
-    ) {
-      if (!store.importState(json)) alert('The shared link seems to be broken.')
-    }
+  const hash = location.hash
+  if (!/^#(plan|p2)=/.test(hash)) return
+  // Drop the plan from the address bar so a reload doesn't offer it again. Wait
+  // for the router's initial navigation first: it rewrites the URL it started
+  // with (hash included) when it settles, undoing any earlier cleanup.
+  await router.isReady()
+  await router.replace({ ...router.currentRoute.value, hash: '' })
+  let json: string | null
+  try {
+    json = await decodeShareHash(hash)
+  } catch {
+    alert('The shared link seems to be broken.')
+    return
+  }
+  if (!json) return
+  const shared = JSON.parse(json)
+  if (
+    confirm(
+      `Load the shared plan (${shared?.guests?.length ?? '?'} guests)? This replaces your current plan — a backup of it is kept under Backups.`,
+    )
+  ) {
+    if (!store.importState(json)) alert('The shared link seems to be broken.')
   }
 })
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
