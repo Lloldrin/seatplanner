@@ -78,17 +78,19 @@ const SNAPSHOT_MIN_INTERVAL_MS = 5 * 60_000
 const UNDO_DEPTH = 50
 
 // Order matters: groups get colors by first appearance, so the palette must be stable.
+// Muted editorial hues, spread around the wheel at a common lightness and low
+// chroma so no group shouts and none competes with the gold accent.
 export const GROUP_COLORS = [
-  '#e11d48', // rose
-  '#2563eb', // blue
-  '#16a34a', // green
-  '#d97706', // amber
-  '#9333ea', // purple
-  '#0d9488', // teal
-  '#db2777', // pink
-  '#65a30d', // lime
-  '#7c3aed', // violet
-  '#0284c7', // sky
+  '#8f4a52', // claret
+  '#a05f3c', // sienna
+  '#7d6630', // ochre
+  '#5f7043', // moss
+  '#47694f', // fern
+  '#3e6b64', // verdigris
+  '#45647f', // slate
+  '#4f5484', // indigo
+  '#6b4a72', // plum
+  '#82466a', // mulberry
 ]
 
 interface PlanState {

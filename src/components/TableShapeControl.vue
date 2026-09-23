@@ -34,12 +34,12 @@ function applySides() {
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center gap-2 text-xs text-stone-500">
+  <div class="text-muted flex flex-wrap items-center gap-2 text-xs">
     <label class="flex items-center gap-1">
       Shape
       <select
         :value="kind"
-        class="rounded border border-stone-200 bg-white px-1.5 py-0.5 text-xs"
+        class="input w-auto min-h-0 px-1.5 py-0.5 text-xs"
         @change="changeKind"
       >
         <option value="round">Round</option>
@@ -54,7 +54,7 @@ function applySides() {
         type="text"
         placeholder="6, 2"
         title="e.g. “6, 2” = 6 on long sides, 2 on short. Or “6, 0, 6, 2” for top, right, bottom, left."
-        class="w-24 rounded border border-stone-200 px-1.5 py-0.5 text-xs"
+        class="input tnum w-24 min-h-0 px-1.5 py-0.5 text-xs"
         @change="applySides"
         @keydown.enter.prevent="applySides"
       />

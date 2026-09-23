@@ -7,9 +7,9 @@ const store = usePlannerStore()
 <template>
   <div
     v-if="store.violations.length"
-    class="mb-3 w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+    class="mb-3 w-full rounded-[var(--radius-md)] border border-[var(--color-accent)] bg-[var(--color-accent-100)] px-3 py-2 text-[13px] text-[var(--color-accent-800)]"
   >
-    <p v-for="violation in store.violations" :key="violation.rule.id">
+    <p v-for="violation in store.violations" :key="violation.rule.id" class="mb-0">
       ⚠ {{ violation.message }}
     </p>
   </div>

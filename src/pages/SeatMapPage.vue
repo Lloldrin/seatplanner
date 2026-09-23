@@ -108,8 +108,8 @@ function onSeatKeydown(event: KeyboardEvent) {
 
 <template>
   <div>
-    <p v-if="!store.tables.length" class="mt-12 text-center text-stone-400">
-      No tables yet — add some on the <RouterLink to="/tables" class="underline">Tables</RouterLink> tab,
+    <p v-if="!store.tables.length" class="text-muted mt-12 text-center">
+      No tables yet — add some on the <RouterLink to="/tables">Tables</RouterLink> tab,
       then come back to seat people around them.
     </p>
 
@@ -118,37 +118,37 @@ function onSeatKeydown(event: KeyboardEvent) {
 
       <div class="mt-3 flex flex-col gap-4 lg:flex-row">
         <aside class="lg:w-64 lg:shrink-0">
-          <div class="rounded-xl border border-stone-200 bg-white p-3">
-            <h2 class="text-sm font-semibold">
+          <div class="card">
+            <h2 class="card-title mb-0">
               Unseated
-              <span class="font-normal text-stone-400">· {{ store.unassignedGuests.length }}</span>
+              <span class="text-muted tnum">· {{ store.unassignedGuests.length }}</span>
             </h2>
             <input
               v-model="search"
               type="search"
               placeholder="Search…"
-              class="mt-2 w-full rounded-lg border border-stone-200 px-2.5 py-1.5 text-sm focus:border-stone-400 focus:outline-none"
+              class="input"
             />
-            <p v-if="!store.guests.length" class="mt-3 text-sm text-stone-400">
+            <p v-if="!store.guests.length" class="text-muted mb-0 text-[13px]">
               Add guests on the Guests tab first.
             </p>
-            <p v-else-if="!store.unassignedGuests.length" class="mt-3 text-sm text-emerald-600">
-              Everyone has a seat 🎉
+            <p v-else-if="!store.unassignedGuests.length" class="mb-0 text-[13px] text-[var(--color-accent-700)]">
+              Everyone has a seat
             </p>
             <div
               data-unseated-zone
-              class="mt-2 flex min-h-24 flex-wrap content-start gap-1.5 rounded-lg"
+              class="flex min-h-24 flex-wrap content-start gap-1.5 rounded-[var(--radius-md)]"
             >
               <GuestChip
                 v-for="guest in unassignedList"
                 :key="guest.id"
                 :guest="guest"
                 class="cursor-pointer touch-none"
-                :class="{ '!border-emerald-500 ring-1 ring-emerald-300': selectedGuestId === guest.id }"
+                :class="{ 'is-held': selectedGuestId === guest.id }"
                 @pointerdown="beginDrag(guest.id, () => toggleSelect(guest.id), $event)"
               />
             </div>
-            <p class="mt-2 text-xs text-stone-400">
+            <p class="text-muted mb-0 text-xs">
               Drag a guest onto a seat — or click a guest, then a seat. Drag a seated guest to another
               seat to move or swap them, or back here to unseat. Set each table's shape in its header.
             </p>
@@ -163,18 +163,22 @@ function onSeatKeydown(event: KeyboardEvent) {
           <div
             v-for="table in store.tables"
             :key="table.id"
-            class="flex flex-col rounded-xl border bg-white p-3 shadow-sm transition"
-            :class="selectedGuestId ? 'border-emerald-400 ring-1 ring-emerald-200' : 'border-stone-200'"
+            class="card gap-0"
+            :class="{ 'is-held': selectedGuestId }"
           >
             <div class="flex items-center gap-2">
               <input
                 :value="table.name"
-                class="w-0 min-w-0 flex-1 rounded px-1 py-0.5 text-sm font-semibold focus:bg-stone-50 focus:outline-none"
+                class="card-title w-0 min-w-0 flex-1 border-0 bg-transparent px-1 py-0.5"
                 @change="store.updateTable(table.id, { name: ($event.target as HTMLInputElement).value })"
               />
               <span
-                class="text-xs tabular-nums"
-                :class="table.seats.filter(Boolean).length >= table.capacity ? 'text-emerald-600' : 'text-stone-400'"
+                class="tnum text-xs"
+                :class="
+                  table.seats.filter(Boolean).length >= table.capacity
+                    ? 'text-[var(--color-accent-700)]'
+                    : 'text-muted'
+                "
               >
                 {{ table.seats.filter(Boolean).length }}/{{ table.capacity }}
               </span>
@@ -195,7 +199,7 @@ function onSeatKeydown(event: KeyboardEvent) {
         <span
           v-for="group in store.groups"
           :key="group"
-          class="inline-flex items-center gap-1.5 text-xs text-stone-500"
+          class="text-muted inline-flex items-center gap-1.5 text-xs"
         >
           <span class="size-2 rounded-full" :style="{ backgroundColor: store.groupColor(group) }" />
           {{ group }}
@@ -206,7 +210,7 @@ function onSeatKeydown(event: KeyboardEvent) {
     <!-- Floating chip that follows the pointer while dragging. -->
     <div
       v-if="ghost"
-      class="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-full border border-stone-300 bg-white px-2.5 py-1 text-sm shadow-lg"
+      class="elev-lg pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-md)] border border-[var(--color-divider)] bg-[var(--color-bg)] px-2.5 py-1 text-[13px]"
       :style="{ left: `${ghost.x}px`, top: `${ghost.y}px` }"
     >
       <span

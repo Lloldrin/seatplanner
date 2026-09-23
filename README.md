@@ -81,6 +81,15 @@ refreshes (e.g. `/seatplanner/circle`) still boot the single-page app.
 - [Vue 3](https://vuejs.org) (`<script setup>` + TypeScript) with
   [Pinia](https://pinia.vuejs.org) and [Vue Router](https://router.vuejs.org)
 - [Vite](https://vite.dev) and [Tailwind CSS 4](https://tailwindcss.com)
+- The look is **Classical**, an editorial design system authored in Claude
+  Design and vendored here as [`src/classical.css`](src/classical.css):
+  Cormorant Garamond over Lora, a warm near-white ground with a single gold
+  accent, hairline rules and outlined buttons. Its tokens drive Tailwind's
+  theme in [`src/style.css`](src/style.css) — notably `--spacing: 4.6px`, so
+  Tailwind's numeric scale *is* the system's 1.15-density spacing scale. Edit
+  the tokens at the top of `classical.css` to retune the whole app; the fonts
+  are `<link>`ed from `index.html` rather than `@import`ed, because Vite
+  inlines the stylesheet where an `@import` would be dropped
 - The circles are hand-rolled SVG: custom pointer-event dragging in SVG user
   space (so it stays exact while zoomed), no drag-and-drop library
 - Persistence is a single versioned localStorage key with a sanitizing

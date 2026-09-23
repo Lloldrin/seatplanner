@@ -58,7 +58,7 @@ function assignAll() {
 
 <template>
   <div class="flex flex-col items-center">
-    <p v-if="!count" class="mt-12 text-center text-stone-400">
+    <p v-if="!count" class="text-muted mt-12 text-center">
       Add some guests first — then arrange them around the circle here.
     </p>
 
@@ -68,23 +68,23 @@ function assignAll() {
           v-model="search"
           type="search"
           placeholder="Find a guest…"
-          class="w-44 rounded-lg border border-stone-300 bg-white px-3 py-1 text-sm focus:border-stone-500 focus:outline-none"
+          class="input w-44"
         />
-        <div class="flex items-center gap-1 text-stone-500">
-          <button class="rounded-lg border border-stone-300 px-2.5 py-1 text-sm transition hover:bg-stone-100" title="Zoom in" @click="zoomCenter(1 / 1.4)">+</button>
-          <button class="rounded-lg border border-stone-300 px-2.5 py-1 text-sm transition hover:bg-stone-100" title="Zoom out" @click="zoomCenter(1.4)">−</button>
-          <button v-if="zoomed" class="rounded-lg border border-stone-300 px-2.5 py-1 text-xs transition hover:bg-stone-100" @click="reset">Reset</button>
+        <div class="flex items-center gap-1">
+          <button class="btn btn-secondary px-2.5 py-1" title="Zoom in" @click="zoomCenter(1 / 1.4)">+</button>
+          <button class="btn btn-secondary px-2.5 py-1" title="Zoom out" @click="zoomCenter(1.4)">−</button>
+          <button v-if="zoomed" class="btn btn-secondary px-2.5 py-1 text-xs" @click="reset">Reset</button>
         </div>
         <button
           v-if="coupleCount"
-          class="rounded-lg border border-stone-300 px-3 py-1 text-xs text-stone-600 transition hover:bg-stone-100"
+          class="btn btn-secondary px-3 py-1 text-xs"
           title="Pull each couple's partners next to each other in the order"
           @click="store.snapCouplesAdjacent()"
         >
           Snap couples together
         </button>
         <button
-          class="ml-auto rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+          class="btn btn-primary ml-auto"
           :disabled="!store.tables.length"
           :title="store.tables.length ? 'Turn this order into seat assignments' : 'Add tables first on the Tables tab'"
           @click="assignAll"
@@ -92,7 +92,7 @@ function assignAll() {
           Assign to tables
         </button>
       </div>
-      <p class="mt-1 w-full max-w-3xl text-xs text-stone-400">
+      <p class="text-muted mt-1 w-full max-w-3xl text-xs">
         Arrange freely — who sits next to whom. No tables yet, just the order.
       </p>
 
@@ -119,13 +119,13 @@ function assignAll() {
             v-if="matchedIds?.has(item.guest.id)"
             r="9"
             fill="none"
-            stroke="#059669"
+            stroke="var(--color-accent)"
             stroke-width="2"
           />
           <circle
             r="5"
-            :fill="store.groupColor(item.guest.group) ?? '#a8a29e'"
-            :stroke="dragIndex === item.index ? '#292524' : 'white'"
+            :fill="store.groupColor(item.guest.group) ?? 'var(--color-neutral-400)'"
+            :stroke="dragIndex === item.index ? 'var(--color-text)' : 'var(--color-bg)'"
             stroke-width="1.5"
           />
           <text
@@ -133,8 +133,8 @@ function assignAll() {
             :text-anchor="item.flipped ? 'end' : 'start'"
             dominant-baseline="central"
             :font-size="labelSize"
-            :font-weight="dragIndex === item.index || matchedIds?.has(item.guest.id) ? 700 : 400"
-            :fill="matchedIds?.has(item.guest.id) ? '#059669' : '#44403c'"
+            :font-weight="dragIndex === item.index || matchedIds?.has(item.guest.id) ? 600 : 400"
+            :fill="matchedIds?.has(item.guest.id) ? 'var(--color-accent-700)' : 'var(--color-text)'"
           >
             {{ item.guest.name }}
           </text>
@@ -145,7 +145,7 @@ function assignAll() {
           :y="CY"
           text-anchor="middle"
           dominant-baseline="central"
-          fill="#a8a29e"
+          fill="var(--color-neutral-400)"
           font-size="15"
         >
           {{ count }} guests
@@ -156,13 +156,13 @@ function assignAll() {
         <span
           v-for="group in store.groups"
           :key="group"
-          class="inline-flex items-center gap-1.5 text-xs text-stone-500"
+          class="text-muted inline-flex items-center gap-1.5 text-xs"
         >
           <span class="size-2 rounded-full" :style="{ backgroundColor: store.groupColor(group) }" />
           {{ group }}
         </span>
       </div>
-      <p class="mt-1 text-xs text-stone-400">Drag a name around the circle to reorder.</p>
+      <p class="text-muted mt-1 text-xs">Drag a name around the circle to reorder.</p>
     </template>
   </div>
 </template>

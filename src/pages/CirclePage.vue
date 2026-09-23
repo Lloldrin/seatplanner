@@ -66,7 +66,35 @@ const { dragIndex, dropIndex, startDrag, displayAngle } = useCircleDrag(
 
 const slotSpacing = computed(() => (slotCount.value ? TAU / slotCount.value : 0))
 const halfSlot = computed(() => slotSpacing.value / 2)
-const labelSize = computed(() => (slotCount.value > 60 ? 10 : slotCount.value > 40 ? 11 : 13))
+
+// Seats carry initials only; the dot has to be big enough to hold two letters,
+// and shrinks once the ring gets crowded.
+const dotRadius = computed(() => (slotCount.value > 60 ? 7 : 9))
+const initialsSize = computed(() => (slotCount.value > 60 ? 7 : 8.5))
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((word) => word[0]!.toUpperCase())
+    .join('')
+}
+
+/** Seat under the pointer, or the one being dragged. */
+const activeIndex = ref<number | null>(null)
+
+const revealedName = computed(() => {
+  const index = dragIndex.value ?? activeIndex.value
+  if (index === null) return ''
+  return slots.value[index]?.guest?.name ?? ''
+})
+
+function onSeatPointerDown(index: number, event: PointerEvent) {
+  if (!slots.value[index]?.guest) return
+  activeIndex.value = index
+  startDrag(index, event)
+}
 
 function polar(radius: number, angle: number): { x: number; y: number } {
   return { x: CX + radius * Math.cos(angle), y: CY + radius * Math.sin(angle) }
@@ -112,7 +140,7 @@ const runs = computed<Run[]>(() => {
   if (unseated > 0) {
     out.push({
       key: 'unseated',
-      color: '#78716c',
+      color: 'var(--color-neutral-600)',
       title: 'Unseated',
       counter: `${unseated}`,
       start: store.totalSeats,
@@ -156,7 +184,7 @@ const dropPoint = computed(() =>
 
 <template>
   <div class="flex flex-col items-center">
-    <p v-if="!slotCount" class="mt-12 text-center text-stone-400">
+    <p v-if="!slotCount" class="text-muted mt-12 text-center">
       Add some guests first — then arrange them around the circle here.
     </p>
 
@@ -167,17 +195,17 @@ const dropPoint = computed(() =>
           v-model="search"
           type="search"
           placeholder="Find a guest…"
-          class="w-44 rounded-lg border border-stone-300 bg-white px-3 py-1 text-sm focus:border-stone-500 focus:outline-none"
+          class="input w-44"
         />
-        <div class="flex items-center gap-1 text-stone-500">
-          <button class="rounded-lg border border-stone-300 px-2.5 py-1 text-sm transition hover:bg-stone-100" title="Zoom in" @click="zoomCenter(1 / 1.4)">+</button>
-          <button class="rounded-lg border border-stone-300 px-2.5 py-1 text-sm transition hover:bg-stone-100" title="Zoom out" @click="zoomCenter(1.4)">−</button>
-          <button v-if="zoomed" class="rounded-lg border border-stone-300 px-2.5 py-1 text-xs transition hover:bg-stone-100" @click="reset">Reset</button>
+        <div class="flex items-center gap-1">
+          <button class="btn btn-secondary px-2.5 py-1" title="Zoom in" @click="zoomCenter(1 / 1.4)">+</button>
+          <button class="btn btn-secondary px-2.5 py-1" title="Zoom out" @click="zoomCenter(1.4)">−</button>
+          <button v-if="zoomed" class="btn btn-secondary px-2.5 py-1 text-xs" @click="reset">Reset</button>
         </div>
         <button
           v-if="store.tables.length"
-          class="ml-auto rounded-full border px-3 py-1 text-xs font-medium transition"
-          :class="showTables ? 'border-stone-700 bg-stone-800 text-white' : 'border-stone-300 text-stone-500 hover:bg-stone-100'"
+          class="btn ml-auto px-3 py-1 text-xs"
+          :class="showTables ? 'btn-primary' : 'btn-secondary'"
           @click="showTables = !showTables"
         >
           {{ showTables ? 'Tables shown' : 'Tables hidden' }}
@@ -236,10 +264,9 @@ const dropPoint = computed(() =>
           :y1="boundaryLine(index).a.y"
           :x2="boundaryLine(index).b.x"
           :y2="boundaryLine(index).b.y"
-          stroke="white"
-          stroke-width="6"
+          stroke="var(--color-text)"
+          stroke-width="1"
           stroke-linecap="round"
-          class="drop-shadow-[0_0_1px_rgba(0,0,0,0.6)]"
         />
         </g>
 
@@ -250,7 +277,7 @@ const dropPoint = computed(() =>
           :cy="dropPoint.y"
           r="10"
           fill="none"
-          stroke="#10b981"
+          stroke="var(--color-accent)"
           stroke-width="2"
         />
 
@@ -264,42 +291,56 @@ const dropPoint = computed(() =>
           }"
           :class="item.slot.guest ? 'cursor-grab' : ''"
           :opacity="matchedIds && item.slot.guest && !matchedIds.has(item.slot.guest.id) ? 0.2 : 1"
-          @pointerdown.prevent.stop="item.slot.guest && startDrag(item.index, $event)"
+          @pointerdown.prevent.stop="onSeatPointerDown(item.index, $event)"
+          @mouseenter="activeIndex = item.index"
+          @mouseleave="activeIndex = null"
         >
+          <title v-if="item.slot.guest">{{ item.slot.guest.name }}</title>
           <circle
             v-if="item.slot.guest && matchedIds?.has(item.slot.guest.id)"
-            r="9"
+            :r="dotRadius + 4"
             fill="none"
-            stroke="#059669"
+            stroke="var(--color-accent)"
             stroke-width="2"
           />
           <circle
             v-if="item.slot.guest"
-            r="5"
-            :fill="store.groupColor(item.slot.guest.group) ?? '#a8a29e'"
-            :stroke="dragIndex === item.index ? '#292524' : 'white'"
+            :r="dotRadius"
+            :fill="store.groupColor(item.slot.guest.group) ?? 'var(--color-neutral-400)'"
+            :stroke="dragIndex === item.index ? 'var(--color-text)' : 'var(--color-bg)'"
             stroke-width="1.5"
           />
-          <circle v-else r="4" fill="white" stroke="#d6d3d1" stroke-width="1.5" />
+          <circle v-else r="4" fill="var(--color-bg)" stroke="var(--color-divider)" stroke-width="1.5" />
+          <!-- Counter-rotated so initials stay upright wherever the seat sits. -->
           <text
             v-if="item.slot.guest"
-            :x="item.flipped ? -12 : 12"
-            :text-anchor="item.flipped ? 'end' : 'start'"
+            :transform="`rotate(${-item.deg})`"
+            text-anchor="middle"
             dominant-baseline="central"
-            :font-size="labelSize"
-            :font-weight="dragIndex === item.index || matchedIds?.has(item.slot.guest.id) ? 700 : 400"
-            :fill="matchedIds?.has(item.slot.guest.id) ? '#059669' : '#44403c'"
+            :font-size="initialsSize"
+            class="circle-initials"
           >
-            {{ item.slot.guest.name }}
+            {{ initials(item.slot.guest.name) }}
           </text>
         </g>
 
         <text
+          v-if="revealedName"
           :x="CX"
           :y="CY"
           text-anchor="middle"
           dominant-baseline="central"
-          fill="#a8a29e"
+          class="circle-center-name"
+        >
+          {{ revealedName }}
+        </text>
+        <text
+          v-else
+          :x="CX"
+          :y="CY"
+          text-anchor="middle"
+          dominant-baseline="central"
+          fill="var(--color-neutral-400)"
           font-size="15"
         >
           {{ store.guests.length }} guests
@@ -310,13 +351,13 @@ const dropPoint = computed(() =>
         <span
           v-for="group in store.groups"
           :key="group"
-          class="inline-flex items-center gap-1.5 text-xs text-stone-500"
+          class="text-muted inline-flex items-center gap-1.5 text-xs"
         >
           <span class="size-2 rounded-full" :style="{ backgroundColor: store.groupColor(group) }" />
           {{ group }}
         </span>
       </div>
-      <p class="mt-1 text-xs text-stone-400">
+      <p class="text-muted mt-1 text-xs">
         Drag a name onto a hollow dot to take that seat, or onto another guest to swap seats.
       </p>
     </template>

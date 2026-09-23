@@ -9,7 +9,7 @@ const store = usePlannerStore()
 
 <template>
   <span
-    class="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white px-2.5 py-1 text-sm shadow-sm"
+    class="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-divider)] px-2 py-1 text-[13px]"
     :title="props.guest.notes"
   >
     <span

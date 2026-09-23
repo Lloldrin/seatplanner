@@ -57,7 +57,7 @@ function groupCount(group: string): number {
         v-model="newName"
         type="text"
         placeholder="Guest name…"
-        class="min-w-48 flex-1 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm focus:border-stone-500 focus:outline-none"
+        class="input min-w-48 flex-1"
         autofocus
       />
       <input
@@ -65,19 +65,10 @@ function groupCount(group: string): number {
         type="text"
         list="group-suggestions"
         placeholder="Group (optional)"
-        class="w-44 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm focus:border-stone-500 focus:outline-none"
+        class="input w-44"
       />
-      <button
-        type="submit"
-        class="rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700"
-      >
-        Add
-      </button>
-      <button
-        type="button"
-        class="rounded-lg border border-stone-300 px-4 py-2 text-sm text-stone-600 transition hover:bg-stone-100"
-        @click="bulkOpen = !bulkOpen"
-      >
+      <button type="submit" class="btn btn-primary">Add</button>
+      <button type="button" class="btn btn-secondary" @click="bulkOpen = !bulkOpen">
         Bulk add
       </button>
     </form>
@@ -86,69 +77,64 @@ function groupCount(group: string): number {
       <option v-for="group in store.groups" :key="group" :value="group" />
     </datalist>
 
-    <div v-if="bulkOpen" class="mt-3 rounded-lg border border-stone-200 bg-white p-3">
+    <div v-if="bulkOpen" class="card mt-3">
       <textarea
         v-model="bulkText"
         rows="6"
         placeholder="One name per line — paste your whole guest list"
-        class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-stone-500 focus:outline-none"
+        class="input"
       />
-      <button
-        class="mt-2 rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700"
-        @click="submitBulk"
-      >
-        Add all
-      </button>
+      <button class="btn btn-primary self-start" @click="submitBulk">Add all</button>
     </div>
 
     <div v-if="store.groups.length" class="mt-4 flex flex-wrap gap-2">
       <span
         v-for="group in store.groups"
         :key="group"
-        class="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-2.5 py-1 text-xs text-stone-600"
+        class="tag tag-neutral gap-1.5"
       >
         <span class="size-2 rounded-full" :style="{ backgroundColor: store.groupColor(group) }" />
-        {{ group }} · {{ groupCount(group) }}
+        {{ group }} · <span class="tnum">{{ groupCount(group) }}</span>
       </span>
     </div>
 
-    <p v-if="!store.guests.length" class="mt-12 text-center text-stone-400">
+    <p v-if="!store.guests.length" class="text-muted mt-12 text-center">
       No guests yet — add your first guest above, or paste a whole list with “Bulk add”.
     </p>
 
-    <ul v-else class="mt-4 divide-y divide-stone-100 rounded-lg border border-stone-200 bg-white">
+    <ul v-else class="mt-4 list-none rounded-[var(--radius-md)] border border-[var(--color-divider)] p-0">
       <li
         v-for="guest in store.guests"
         :key="guest.id"
-        class="flex flex-wrap items-center gap-2 px-3 py-2"
+        class="flex flex-wrap items-center gap-2 border-b border-[var(--color-divider)] px-3 py-2 last:border-0"
       >
         <span
           class="size-2.5 shrink-0 rounded-full"
-          :style="{ backgroundColor: store.groupColor(guest.group) ?? '#d6d3d1' }"
+          :style="{ backgroundColor: store.groupColor(guest.group) ?? 'var(--color-neutral-300)' }"
         />
         <input
           :value="guest.name"
-          class="w-44 rounded px-1.5 py-1 text-sm font-medium focus:bg-stone-50 focus:outline-none"
+          class="input w-44 min-h-0 border-0 px-1.5 py-1"
           @change="store.updateGuest(guest.id, { name: ($event.target as HTMLInputElement).value })"
         />
         <input
           :value="guest.group ?? ''"
           list="group-suggestions"
           placeholder="group"
-          class="w-36 rounded px-1.5 py-1 text-sm text-stone-500 focus:bg-stone-50 focus:outline-none"
+          class="input text-muted w-36 min-h-0 border-0 px-1.5 py-1"
           @change="store.updateGuest(guest.id, { group: ($event.target as HTMLInputElement).value })"
         />
         <input
           :value="guest.notes ?? ''"
           placeholder="notes"
-          class="min-w-32 flex-1 rounded px-1.5 py-1 text-sm text-stone-400 focus:bg-stone-50 focus:outline-none"
+          class="input text-muted min-w-32 flex-1 min-h-0 border-0 px-1.5 py-1"
           @change="store.updateGuest(guest.id, { notes: ($event.target as HTMLInputElement).value })"
         />
-        <span class="text-xs text-stone-400">
+        <span class="text-muted text-xs">
           {{ store.tableByGuestId.get(guest.id)?.name ?? '' }}
         </span>
         <button
-          class="rounded px-1.5 text-stone-300 transition hover:text-red-500"
+          class="btn btn-ghost px-1.5 py-0"
           title="Remove guest"
           @click="store.removeGuest(guest.id)"
         >
@@ -157,42 +143,41 @@ function groupCount(group: string): number {
       </li>
     </ul>
 
-    <details v-if="store.guests.length >= 2" class="mt-6 rounded-lg border border-stone-200 bg-white p-3" :open="store.rules.length > 0">
-      <summary class="cursor-pointer text-sm font-semibold">
+    <details v-if="store.guests.length >= 2" class="card mt-6" :open="store.rules.length > 0">
+      <summary class="card-title cursor-pointer">
         Rules
-        <span class="font-normal text-stone-400">· {{ store.rules.length }}</span>
-        <span class="ml-2 text-xs font-normal text-stone-400">
+        <span class="text-muted tnum">· {{ store.rules.length }}</span>
+        <span class="text-muted ml-2 font-[var(--font-body)] text-xs">
           couples & keep together/apart — warnings show when the seating breaks them
         </span>
       </summary>
-      <form class="mt-3 flex flex-wrap items-center gap-2 text-sm" @submit.prevent="submitRule">
-        <select v-model="ruleA" class="rounded-lg border border-stone-300 bg-white px-2 py-1.5">
+      <form class="mt-3 flex flex-wrap items-center gap-2" @submit.prevent="submitRule">
+        <select v-model="ruleA" class="input w-auto">
           <option value="" disabled>Guest…</option>
           <option v-for="g in store.guests" :key="g.id" :value="g.id">{{ g.name }}</option>
         </select>
-        <select v-model="ruleKind" class="rounded-lg border border-stone-300 bg-white px-2 py-1.5">
+        <select v-model="ruleKind" class="input w-auto">
           <option v-for="(label, kind) in KIND_LABELS" :key="kind" :value="kind">{{ label }}</option>
         </select>
-        <select v-model="ruleB" class="rounded-lg border border-stone-300 bg-white px-2 py-1.5">
+        <select v-model="ruleB" class="input w-auto">
           <option value="" disabled>Guest…</option>
           <option v-for="g in store.guests" :key="g.id" :value="g.id" :disabled="g.id === ruleA">
             {{ g.name }}
           </option>
         </select>
-        <button
-          type="submit"
-          class="rounded-lg bg-stone-800 px-4 py-1.5 font-medium text-white transition hover:bg-stone-700"
-        >
-          Add rule
-        </button>
+        <button type="submit" class="btn btn-primary">Add rule</button>
       </form>
-      <ul v-if="store.rules.length" class="mt-3 divide-y divide-stone-100">
-        <li v-for="rule in store.rules" :key="rule.id" class="flex items-center gap-2 py-1.5 text-sm">
-          <span class="font-medium">{{ guestName(rule.a) }}</span>
-          <span class="text-stone-400">{{ KIND_LABELS[rule.kind] }}</span>
-          <span class="font-medium">{{ guestName(rule.b) }}</span>
+      <ul v-if="store.rules.length" class="m-0 mt-3 list-none p-0">
+        <li
+          v-for="rule in store.rules"
+          :key="rule.id"
+          class="flex items-center gap-2 border-b border-[var(--color-divider)] py-1.5 text-[13px] last:border-0"
+        >
+          <span>{{ guestName(rule.a) }}</span>
+          <span class="text-muted italic">{{ KIND_LABELS[rule.kind] }}</span>
+          <span>{{ guestName(rule.b) }}</span>
           <button
-            class="ml-auto rounded px-1.5 text-stone-300 transition hover:text-red-500"
+            class="btn btn-ghost ml-auto px-1.5 py-0"
             title="Remove rule"
             @click="store.removeRule(rule.id)"
           >
