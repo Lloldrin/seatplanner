@@ -17,8 +17,10 @@ const props = withDefaults(
     interactive?: boolean
     /** Interactive only: show angled full-name labels beside seats instead of initials. */
     names?: boolean
+    /** Draw each seated guest's group-coloured dot; off leaves just the name (print). */
+    dots?: boolean
   }>(),
-  { selectedGuestId: null, interactive: false, names: false },
+  { selectedGuestId: null, interactive: false, names: false, dots: true },
 )
 
 const store = usePlannerStore()
@@ -197,6 +199,7 @@ function labelProps(seat: SeatPos): { x: number; transform?: string; 'text-ancho
           stroke-dasharray="2 2"
         />
         <circle
+          v-if="dots"
           :r="interactive ? 10 : 8"
           class="seat-ring"
           :style="{ '--seat-color': seatFill(table.seats[seat.index]!) }"
