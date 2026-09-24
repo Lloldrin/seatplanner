@@ -10,8 +10,8 @@ const store = usePlannerStore()
 const layout = ref<'lists' | 'map'>('lists')
 /** Each table on its own sheet: page breaks in print, one column on screen. */
 const onePerPage = ref(false)
-/** Group-coloured seat dots on the map; off prints names only (saves ink). */
-const dots = ref(true)
+/** Group-coloured seat dots on the map; off prints them all plain grey (saves ink). */
+const colored = ref(true)
 
 const today = new Date().toLocaleDateString(undefined, {
   year: 'numeric',
@@ -136,14 +136,14 @@ function downloadTable(event: MouseEvent, tableName: string) {
           </label>
         </div>
         <template v-if="layout === 'map'">
-          <div class="seg" aria-label="Seat dots">
+          <div class="seg" aria-label="Seat dot colour">
             <label class="seg-opt">
-              <input v-model="dots" type="radio" :value="true" />
+              <input v-model="colored" type="radio" :value="true" />
               Colored dots
             </label>
             <label class="seg-opt">
-              <input v-model="dots" type="radio" :value="false" />
-              Names only
+              <input v-model="colored" type="radio" :value="false" />
+              Plain dots
             </label>
           </div>
           <button class="btn btn-secondary" :disabled="exporting" @click="downloadAll">
@@ -194,7 +194,7 @@ function downloadTable(event: MouseEvent, tableName: string) {
           <TableSeatMap
             v-if="layout === 'map'"
             :table="table"
-            :dots="dots"
+            :colored="colored"
             class="mt-2 w-full"
             :class="
               isLongTable(table)
@@ -214,7 +214,7 @@ function downloadTable(event: MouseEvent, tableName: string) {
 
           <!-- One per page: every sheet (and single-table PNG) carries its own key. -->
           <div
-            v-if="layout === 'map' && dots && onePerPage && store.groups.length"
+            v-if="layout === 'map' && colored && onePerPage && store.groups.length"
             class="text-muted mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[13px]"
           >
             <span v-for="group in store.groups" :key="group" class="inline-flex items-center gap-1.5">
@@ -226,7 +226,7 @@ function downloadTable(event: MouseEvent, tableName: string) {
       </div>
 
       <div
-        v-if="layout === 'map' && dots && !onePerPage && store.groups.length"
+        v-if="layout === 'map' && colored && !onePerPage && store.groups.length"
         class="text-muted mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[13px]"
       >
         <span

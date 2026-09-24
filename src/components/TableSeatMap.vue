@@ -17,10 +17,10 @@ const props = withDefaults(
     interactive?: boolean
     /** Interactive only: show angled full-name labels beside seats instead of initials. */
     names?: boolean
-    /** Draw each seated guest's group-coloured dot; off leaves just the name (print). */
-    dots?: boolean
+    /** Colour seated guests' dots by group; off draws them all in neutral grey (print). */
+    colored?: boolean
   }>(),
-  { selectedGuestId: null, interactive: false, names: false, dots: true },
+  { selectedGuestId: null, interactive: false, names: false, colored: true },
 )
 
 const store = usePlannerStore()
@@ -91,6 +91,7 @@ function seatLabel(table: Table, index: number): string {
 }
 
 function seatFill(guestId: string): string {
+  if (!props.colored) return 'var(--color-neutral-400)'
   const guest = store.guests.find((g) => g.id === guestId)
   return store.groupColor(guest?.group) ?? 'var(--color-neutral-400)'
 }
@@ -199,7 +200,6 @@ function labelProps(seat: SeatPos): { x: number; transform?: string; 'text-ancho
           stroke-dasharray="2 2"
         />
         <circle
-          v-if="dots"
           :r="interactive ? 10 : 8"
           class="seat-ring"
           :style="{ '--seat-color': seatFill(table.seats[seat.index]!) }"
