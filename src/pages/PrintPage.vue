@@ -70,7 +70,6 @@ async function downloadPng(node: HTMLElement, name: string) {
   try {
     const url = await toPng(node, {
       pixelRatio: 2,
-      backgroundColor: getComputedStyle(document.body).backgroundColor,
       width: node.offsetWidth + PNG_MARGIN * 2,
       height: node.offsetHeight + PNG_MARGIN * 2,
       style: { margin: `${PNG_MARGIN}px` },
